@@ -1,0 +1,149 @@
+package cli
+
+import (
+	"bytes"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	toml "github.com/pelletier/go-toml/v2"
+)
+
+const (
+	codexDir    = ".codex"
+	codexConfig = "config.toml"
+)
+
+func codexConfigPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, codexDir, codexConfig), nil
+}
+
+func codexEnvPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, codexDir, "oneswitch_env.sh"), nil
+}
+
+func ReadCodexConfig() (map[string]interface{}, error) {
+	path, err := codexConfigPath()
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var m map[string]interface{}
+	if err := toml.Unmarshal(data, &m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func WriteCodexConfig(m map[string]interface{}) error {
+	path, err := codexConfigPath()
+	if err != nil {
+		return err
+	}
+	backupFile(path)
+	var buf bytes.Buffer
+	enc := toml.NewEncoder(&buf)
+	enc.SetTablesInline(false)
+	if err := enc.Encode(m); err != nil {
+		return err
+	}
+	return os.WriteFile(path, buf.Bytes(), 0644)
+}
+
+func EnableCodexProvider(baseURL, apiKey string) error {
+	m, err := ReadCodexConfig()
+	if err != nil {
+		if os.IsNotExist(err) {
+			m = make(map[string]interface{})
+		} else {
+			return err
+		}
+	}
+
+	m["model_provider"] = "oneswitch"
+
+	providers, _ := m["model_providers"].(map[string]interface{})
+	if providers == nil {
+		providers = make(map[string]interface{})
+	}
+
+	providers["oneswitch"] = map[string]interface{}{
+		"name":                 "one-switch",
+		"base_url":             strings.TrimRight(baseURL, "/"),
+		"requires_openai_auth": true,
+		"wire_api":             "responses",
+	}
+
+	m["model_providers"] = providers
+
+	if err := WriteCodexConfig(m); err != nil {
+		return err
+	}
+
+	// Write env file for OPENAI_API_KEY
+	envPath, _ := codexEnvPath()
+	envContent := fmt.Sprintf("# one-switch auto-generated\nexport OPENAI_API_KEY=\"%s\"\n", apiKey)
+	return os.WriteFile(envPath, []byte(envContent), 0644)
+}
+
+func DisableCodexProvider() error {
+	m, err := ReadCodexConfig()
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	if m["model_provider"] == "oneswitch" {
+		delete(m, "model_provider")
+	}
+
+	if providers, ok := m["model_providers"].(map[string]interface{}); ok {
+		delete(providers, "oneswitch")
+		m["model_providers"] = providers
+	}
+
+	// Remove env file
+	envPath, _ := codexEnvPath()
+	os.Remove(envPath)
+
+	return WriteCodexConfig(m)
+}
+
+func IsCodexEnabled(proxyAddr string) bool {
+	m, err := ReadCodexConfig()
+	if err != nil {
+		return false
+	}
+	if m["model_provider"] != "oneswitch" {
+		return false
+	}
+	providers, ok := m["model_providers"].(map[string]interface{})
+	if !ok {
+		return false
+	}
+	oneswitch, ok := providers["oneswitch"].(map[string]interface{})
+	if !ok {
+		return false
+	}
+	expected := fmt.Sprintf("http://%s/openai", proxyAddr)
+	return oneswitch["base_url"] == expected
+}
+
+func GetCodexEnvFilePath() string {
+	path, _ := codexEnvPath()
+	return path
+}
