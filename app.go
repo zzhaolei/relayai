@@ -73,24 +73,25 @@ func (a *App) ProviderList() []config.Provider {
 	return a.store.GetProviders()
 }
 
-func (a *App) ProviderCreate(name, baseURL, apiKey string, models []string, defaultModel string, modelMappings []config.ModelMapping) (config.Provider, error) {
-	p := config.NewProvider(name, baseURL, apiKey, models)
+func (a *App) ProviderCreate(name, baseURL, apiKey string, defaultModel string, modelMappings []config.ModelMapping, cliTypes []string) (config.Provider, error) {
+	p := config.NewProvider(name, baseURL, apiKey)
 	p.DefaultModel = defaultModel
 	p.ModelMappings = modelMappings
+	p.CLITypes = cliTypes
 	if err := a.store.AddProvider(p); err != nil {
 		return config.Provider{}, err
 	}
 	return p, nil
 }
 
-func (a *App) ProviderUpdate(id, name, baseURL, apiKey string, models []string, defaultModel string, modelMappings []config.ModelMapping) error {
+func (a *App) ProviderUpdate(id, name, baseURL, apiKey string, defaultModel string, modelMappings []config.ModelMapping, cliTypes []string) error {
 	p := config.Provider{
 		Name:          name,
 		BaseURL:       baseURL,
 		APIKey:        apiKey,
-		Models:        models,
 		DefaultModel:  defaultModel,
 		ModelMappings: modelMappings,
+		CLITypes:      cliTypes,
 	}
 	return a.store.UpdateProvider(id, p)
 }
@@ -106,7 +107,6 @@ func (a *App) ProviderSetEnabled(id string, enabled bool) error {
 // --- CLI Config Writing ---
 
 // WriteCLIConfig writes the proxy URL and key into the specified CLI's config file.
-// This is called when the user clicks the Claude/Codex/Gemini button.
 func (a *App) WriteCLIConfig(cliType string) error {
 	enabled := a.store.GetEnabledProviders()
 	if len(enabled) == 0 {
@@ -124,8 +124,6 @@ func (a *App) WriteCLIConfig(cliType string) error {
 		return cli.EnableClaudeProvider(proxyBaseURL+"/anthropic", apiKey)
 	case "codex":
 		return cli.EnableCodexProvider(proxyBaseURL+"/openai", apiKey)
-	case "gemini":
-		return cli.EnableGeminiProvider(proxyBaseURL+"/gemini", apiKey)
 	default:
 		return fmt.Errorf("unknown cli type: %s", cliType)
 	}
@@ -137,8 +135,17 @@ func (a *App) GetCLIConfigStatus() map[string]bool {
 	return map[string]bool{
 		"claude": cli.IsClaudeEnabled(proxyAddr),
 		"codex":  cli.IsCodexEnabled(proxyAddr),
-		"gemini": cli.IsGeminiEnabled(proxyAddr),
 	}
+}
+
+// --- Logs ---
+
+func (a *App) GetProxyLogs() []proxy.RequestLog {
+	return a.proxy.GetLogs()
+}
+
+func (a *App) ClearProxyLogs() {
+	a.proxy.ClearLogs()
 }
 
 // --- Settings ---

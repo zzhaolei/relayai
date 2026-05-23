@@ -8,15 +8,15 @@ type ModelMapping struct {
 }
 
 type Provider struct {
-	ID            string        `json:"id"`
-	Name          string        `json:"name"`
-	BaseURL       string        `json:"base_url"`
-	APIKey        string        `json:"api_key"`
-	Models        []string      `json:"models"`
-	DefaultModel  string        `json:"default_model"`
+	ID            string         `json:"id"`
+	Name          string         `json:"name"`
+	BaseURL       string         `json:"base_url"`
+	APIKey        string         `json:"api_key"`
+	DefaultModel  string         `json:"default_model"`
 	ModelMappings []ModelMapping `json:"model_mappings"`
-	Enabled       bool          `json:"enabled"`
-	CreatedAt     int64         `json:"created_at"`
+	CLITypes      []string       `json:"cli_types"`
+	Enabled       bool           `json:"enabled"`
+	CreatedAt     int64          `json:"created_at"`
 }
 
 type AppSettings struct {
@@ -31,13 +31,12 @@ func DefaultSettings() *AppSettings {
 	}
 }
 
-func NewProvider(name, baseURL, apiKey string, models []string) Provider {
+func NewProvider(name, baseURL, apiKey string) Provider {
 	return Provider{
 		ID:        generateID(),
 		Name:      name,
 		BaseURL:   baseURL,
 		APIKey:    apiKey,
-		Models:    models,
 		Enabled:   true,
 		CreatedAt: time.Now().Unix(),
 	}

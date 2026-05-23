@@ -19,9 +19,9 @@ export namespace config {
 	    name: string;
 	    base_url: string;
 	    api_key: string;
-	    models: string[];
 	    default_model: string;
 	    model_mappings: ModelMapping[];
+	    cli_types: string[];
 	    enabled: boolean;
 	    created_at: number;
 	
@@ -35,9 +35,9 @@ export namespace config {
 	        this.name = source["name"];
 	        this.base_url = source["base_url"];
 	        this.api_key = source["api_key"];
-	        this.models = source["models"];
 	        this.default_model = source["default_model"];
 	        this.model_mappings = this.convertValues(source["model_mappings"], ModelMapping);
+	        this.cli_types = source["cli_types"];
 	        this.enabled = source["enabled"];
 	        this.created_at = source["created_at"];
 	    }
@@ -112,6 +112,43 @@ export namespace main {
 	        this.running = source["running"];
 	        this.port = source["port"];
 	        this.addr = source["addr"];
+	    }
+	}
+
+}
+
+export namespace proxy {
+	
+	export class RequestLog {
+	    id: string;
+	    time: number;
+	    method: string;
+	    path: string;
+	    cli_type: string;
+	    provider: string;
+	    model: string;
+	    status_code: number;
+	    duration_ms: number;
+	    error?: string;
+	    response_body?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RequestLog(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.time = source["time"];
+	        this.method = source["method"];
+	        this.path = source["path"];
+	        this.cli_type = source["cli_type"];
+	        this.provider = source["provider"];
+	        this.model = source["model"];
+	        this.status_code = source["status_code"];
+	        this.duration_ms = source["duration_ms"];
+	        this.error = source["error"];
+	        this.response_body = source["response_body"];
 	    }
 	}
 

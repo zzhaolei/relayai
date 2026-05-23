@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"maps"
@@ -17,15 +18,13 @@ import (
 const (
 	cliClaude = "claude"
 	cliCodex  = "codex"
-	cliGemini = "gemini"
 )
 
-func newRouter(store *config.Store) http.Handler {
+func newRouter(store *config.Store, logger *Logger) http.Handler {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/anthropic/", makeHandler(store, cliClaude, "/anthropic"))
-	mux.HandleFunc("/openai/", makeHandler(store, cliCodex, "/openai"))
-	mux.HandleFunc("/gemini/", makeHandler(store, cliGemini, "/gemini"))
+	mux.HandleFunc("/anthropic/", makeHandler(store, logger, cliClaude, "/anthropic"))
+	mux.HandleFunc("/openai/", makeHandler(store, logger, cliCodex, "/openai"))
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
@@ -34,10 +33,28 @@ func newRouter(store *config.Store) http.Handler {
 	return mux
 }
 
-func makeHandler(store *config.Store, cliType, prefix string) http.HandlerFunc {
+func makeHandler(store *config.Store, logger *Logger, cliType, prefix string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		providers := store.GetEnabledProviders()
+		start := time.Now()
+		allProviders := store.GetEnabledProviders()
+
+		// Filter providers that support this CLI type
+		var providers []config.Provider
+		for _, p := range allProviders {
+			if len(p.CLITypes) == 0 || contains(p.CLITypes, cliType) {
+				providers = append(providers, p)
+			}
+		}
+
 		if len(providers) == 0 {
+			logger.Add(RequestLog{
+				Method:     r.Method,
+				Path:       r.URL.Path,
+				CLIType:    cliType,
+				StatusCode: http.StatusBadGateway,
+				Duration:   time.Since(start).Milliseconds(),
+				Error:      "no provider configured for " + cliType,
+			})
 			http.Error(w, `{"error":{"message":"no provider configured for `+cliType+`"}}`, http.StatusBadGateway)
 			return
 		}
@@ -54,17 +71,30 @@ func makeHandler(store *config.Store, cliType, prefix string) http.HandlerFunc {
 			var err error
 			bodyBytes, err = io.ReadAll(r.Body)
 			if err != nil {
+				logger.Add(RequestLog{
+					Method:     r.Method,
+					Path:       r.URL.Path,
+					CLIType:    cliType,
+					StatusCode: http.StatusBadRequest,
+					Duration:   time.Since(start).Milliseconds(),
+					Error:      "failed to read request body",
+				})
 				http.Error(w, `{"error":{"message":"failed to read request body"}}`, http.StatusBadRequest)
 				return
 			}
 			r.Body.Close()
 		}
 
+		// Extract original model from body
+		originalModel := extractModel(bodyBytes)
+
 		// Try each provider in order
+		var lastErr string
 		for i, provider := range providers {
 			target, err := url.Parse(provider.BaseURL)
 			if err != nil {
 				log.Printf("proxy %s: invalid base_url %q: %v", cliType, provider.BaseURL, err)
+				lastErr = fmt.Sprintf("invalid base_url: %v", err)
 				continue
 			}
 
@@ -78,14 +108,34 @@ func makeHandler(store *config.Store, cliType, prefix string) http.HandlerFunc {
 
 			log.Printf("proxy %s [%d/%d] %s -> %s", cliType, i+1, len(providers), r.Method, upstreamURL)
 
-			ok := tryProvider(w, r, upstreamURL, providerBody, &provider, i < len(providers)-1)
-			if ok {
+			result := tryProvider(w, r, upstreamURL, providerBody, &provider, i < len(providers)-1)
+			if result.StatusCode > 0 {
+				logger.Add(RequestLog{
+					Method:       r.Method,
+					Path:         r.URL.Path,
+					CLIType:      cliType,
+					Provider:     provider.Name,
+					Model:        originalModel,
+					StatusCode:   result.StatusCode,
+					Duration:     time.Since(start).Milliseconds(),
+					Error:        result.Error,
+					ResponseBody: result.ResponseBody,
+				})
 				return
 			}
 
+			lastErr = result.Error
 			log.Printf("proxy %s: provider %q failed, trying next", cliType, provider.Name)
 		}
 
+		logger.Add(RequestLog{
+			Method:     r.Method,
+			Path:       r.URL.Path,
+			CLIType:    cliType,
+			StatusCode: http.StatusBadGateway,
+			Duration:   time.Since(start).Milliseconds(),
+			Error:      lastErr,
+		})
 		http.Error(w, `{"error":{"message":"all providers failed for `+cliType+`"}}`, http.StatusBadGateway)
 	}
 }
@@ -138,7 +188,28 @@ func transformBody(body []byte, provider *config.Provider) []byte {
 	return out
 }
 
-func tryProvider(w http.ResponseWriter, r *http.Request, upstreamURL string, body []byte, provider *config.Provider, canFallback bool) bool {
+// extractModel reads the "model" field from a JSON body without full parsing.
+func extractModel(body []byte) string {
+	if len(body) == 0 {
+		return ""
+	}
+	var m map[string]any
+	if err := json.Unmarshal(body, &m); err != nil {
+		return ""
+	}
+	model, _ := m["model"].(string)
+	return model
+}
+
+// tryProviderResult holds the result of a provider attempt.
+type tryProviderResult struct {
+	StatusCode   int
+	Error        string
+	ResponseBody string
+}
+
+// tryProvider sends the request to the upstream provider.
+func tryProvider(w http.ResponseWriter, r *http.Request, upstreamURL string, body []byte, provider *config.Provider, canFallback bool) tryProviderResult {
 	var reqBody io.Reader
 	if len(body) > 0 {
 		reqBody = bytes.NewReader(body)
@@ -147,7 +218,7 @@ func tryProvider(w http.ResponseWriter, r *http.Request, upstreamURL string, bod
 	req, err := http.NewRequestWithContext(r.Context(), r.Method, upstreamURL, reqBody)
 	if err != nil {
 		log.Printf("proxy: failed to create request: %v", err)
-		return false
+		return tryProviderResult{Error: fmt.Sprintf("failed to create request: %v", err)}
 	}
 
 	req.Header = r.Header.Clone()
@@ -164,35 +235,35 @@ func tryProvider(w http.ResponseWriter, r *http.Request, upstreamURL string, bod
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Printf("proxy: upstream error from %s: %v", provider.Name, err)
-		return false
+		return tryProviderResult{Error: fmt.Sprintf("upstream error: %v", err)}
 	}
 	defer resp.Body.Close()
 
+	respBody, _ := io.ReadAll(resp.Body)
+
 	if canFallback && resp.StatusCode >= 500 {
 		log.Printf("proxy: provider %q returned %d, trying next", provider.Name, resp.StatusCode)
-		io.Copy(io.Discard, resp.Body)
-		return false
+		return tryProviderResult{
+			StatusCode:   resp.StatusCode,
+			Error:        fmt.Sprintf("upstream returned %d", resp.StatusCode),
+			ResponseBody: string(respBody),
+		}
 	}
 
 	maps.Copy(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
-
-	flusher, _ := w.(http.Flusher)
-	buf := make([]byte, 32*1024)
-	for {
-		n, readErr := resp.Body.Read(buf)
-		if n > 0 {
-			w.Write(buf[:n])
-			if flusher != nil {
-				flusher.Flush()
-			}
-		}
-		if readErr != nil {
-			break
-		}
+	w.Write(respBody)
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
 	}
 
-	return true
+	errStr := ""
+	var respBodyStr string
+	if resp.StatusCode >= 400 {
+		errStr = fmt.Sprintf("upstream returned %d", resp.StatusCode)
+		respBodyStr = string(respBody)
+	}
+	return tryProviderResult{StatusCode: resp.StatusCode, Error: errStr, ResponseBody: respBodyStr}
 }
 
 func singleJoiningSlash(a, b string) string {
@@ -205,4 +276,13 @@ func singleJoiningSlash(a, b string) string {
 		return a + "/" + b
 	}
 	return a + b
+}
+
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
 }

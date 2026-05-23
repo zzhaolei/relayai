@@ -11,9 +11,9 @@ export interface Provider {
   name: string
   base_url: string
   api_key: string
-  models: string[]
   default_model: string
   model_mappings: ModelMapping[]
+  cli_types: string[]
   enabled: boolean
   created_at: number
 }
@@ -23,6 +23,31 @@ export interface ProxyStatus {
   port: number
   addr: string
 }
+
+export interface RequestLog {
+  id: string
+  time: number
+  method: string
+  path: string
+  cli_type: string
+  provider: string
+  model: string
+  status_code: number
+  duration_ms: number
+  error?: string
+  response_body?: string
+}
+
+export interface CLITypeMeta {
+  key: string
+  label: string
+  path: string
+}
+
+export const CLI_TYPES: CLITypeMeta[] = [
+  { key: 'claude', label: 'Claude', path: '/anthropic' },
+  { key: 'codex', label: 'Codex', path: '/openai' },
+]
 
 declare global {
   interface Window {
@@ -34,12 +59,14 @@ declare global {
           ProxyRestart(): Promise<void>
           ProxyStatus(): Promise<ProxyStatus>
           ProviderList(): Promise<Provider[]>
-          ProviderCreate(name: string, base_url: string, api_key: string, models: string[], defaultModel: string, modelMappings: ModelMapping[]): Promise<Provider>
-          ProviderUpdate(id: string, name: string, base_url: string, api_key: string, models: string[], defaultModel: string, modelMappings: ModelMapping[]): Promise<void>
+          ProviderCreate(name: string, base_url: string, api_key: string, defaultModel: string, modelMappings: ModelMapping[], cliTypes: string[]): Promise<Provider>
+          ProviderUpdate(id: string, name: string, base_url: string, api_key: string, defaultModel: string, modelMappings: ModelMapping[], cliTypes: string[]): Promise<void>
           ProviderDelete(id: string): Promise<void>
           ProviderSetEnabled(id: string, enabled: boolean): Promise<void>
           WriteCLIConfig(cliType: string): Promise<void>
           GetCLIConfigStatus(): Promise<Record<string, boolean>>
+          GetProxyLogs(): Promise<RequestLog[]>
+          ClearProxyLogs(): Promise<void>
           SettingsGet(): Promise<any>
           SettingsUpdatePort(port: number): Promise<void>
         }
@@ -53,6 +80,7 @@ const api = () => window.go.main.App
 export const useAppStore = defineStore('app', () => {
   const providers = ref<Provider[]>([])
   const proxyStatus = ref<ProxyStatus>({ running: false, port: 18900, addr: '' })
+  const logs = ref<RequestLog[]>([])
   const loading = ref(false)
 
   async function fetchProxyStatus() {
@@ -73,12 +101,12 @@ export const useAppStore = defineStore('app', () => {
   }
 
   async function createProvider(p: Omit<Provider, 'id' | 'created_at' | 'enabled'>) {
-    await api().ProviderCreate(p.name, p.base_url, p.api_key, p.models, p.default_model, p.model_mappings || [])
+    await api().ProviderCreate(p.name, p.base_url, p.api_key, p.default_model, p.model_mappings || [], p.cli_types || [])
     await fetchProviders()
   }
 
   async function updateProvider(id: string, p: Omit<Provider, 'id' | 'created_at' | 'enabled'>) {
-    await api().ProviderUpdate(id, p.name, p.base_url, p.api_key, p.models, p.default_model, p.model_mappings || [])
+    await api().ProviderUpdate(id, p.name, p.base_url, p.api_key, p.default_model, p.model_mappings || [], p.cli_types || [])
     await fetchProviders()
   }
 
@@ -101,6 +129,15 @@ export const useAppStore = defineStore('app', () => {
     await fetchProxyStatus()
   }
 
+  async function fetchLogs() {
+    logs.value = await api().GetProxyLogs()
+  }
+
+  async function clearLogs() {
+    await api().ClearProxyLogs()
+    logs.value = []
+  }
+
   async function startProxy() {
     await api().ProxyStart()
     await fetchProxyStatus()
@@ -114,6 +151,7 @@ export const useAppStore = defineStore('app', () => {
   return {
     providers,
     proxyStatus,
+    logs,
     loading,
     fetchAll,
     fetchProxyStatus,
@@ -126,5 +164,7 @@ export const useAppStore = defineStore('app', () => {
     restartProxy,
     startProxy,
     stopProxy,
+    fetchLogs,
+    clearLogs,
   }
 })

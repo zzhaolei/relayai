@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import type { Provider } from '../stores/app'
-import { useAppStore } from '../stores/app'
+import { useAppStore, CLI_TYPES } from '../stores/app'
+import CLIIcon from './CLIIcon.vue'
 
 const props = defineProps<{
   provider: Provider
@@ -14,28 +15,17 @@ const emit = defineEmits<{
 }>()
 
 const store = useAppStore()
-
-const cliButtons = [
-  { key: 'claude', label: 'Claude', color: '#D97706' },
-  { key: 'codex', label: 'Codex', color: '#10B981' },
-  { key: 'gemini', label: 'Gemini', color: '#8B5CF6' },
-]
+const toggling = ref(false)
 
 async function handleToggleEnabled(val: string | number | boolean) {
+  toggling.value = true
   try {
     await store.toggleProviderEnabled(props.provider.id, !!val)
     Message.success({ content: val ? '已启用' : '已禁用', duration: 2000 })
   } catch (e: any) {
     Message.error(e?.message || '操作失败')
-  }
-}
-
-async function handleWriteCLI(cliType: string) {
-  try {
-    await store.writeCLIConfig(cliType)
-    Message.success({ content: `${cliType} 配置已写入`, duration: 2000 })
-  } catch (e: any) {
-    Message.error(e?.message || '写入失败')
+  } finally {
+    toggling.value = false
   }
 }
 
@@ -45,6 +35,16 @@ const maskedKey = computed(() => {
   if (key.length <= 8) return '****'
   return key.slice(0, 4) + '****' + key.slice(-4)
 })
+
+const cliTypes = computed(() => {
+  const types = props.provider.cli_types
+  if (!types || types.length === 0) return ['claude', 'codex']
+  return types
+})
+
+const cliLabels: Record<string, string> = Object.fromEntries(
+  CLI_TYPES.map(t => [t.key, t.label])
+)
 </script>
 
 <template>
@@ -58,6 +58,8 @@ const maskedKey = computed(() => {
       <div class="top-left">
         <a-switch
           :model-value="provider.enabled"
+          :loading="toggling"
+          :disabled="toggling"
           @change="handleToggleEnabled"
           size="small"
         />
@@ -80,10 +82,15 @@ const maskedKey = computed(() => {
         <span class="info-label">Key</span>
         <span class="info-value">{{ maskedKey }}</span>
       </div>
-    </div>
-
-    <div v-if="provider.models?.length" class="card-tags">
-      <a-tag v-for="m in provider.models" :key="m" size="small" color="arcoblue">{{ m }}</a-tag>
+      <div class="info-row">
+        <span class="info-label">CLI</span>
+        <span class="cli-icons">
+          <span v-for="t in cliTypes" :key="t" class="cli-item">
+            <CLIIcon :type="t as 'claude' | 'codex'" :size="14" />
+            <span>{{ cliLabels[t] || t }}</span>
+          </span>
+        </span>
+      </div>
     </div>
 
     <div v-if="provider.default_model || provider.model_mappings?.length" class="card-tags">
@@ -94,36 +101,24 @@ const maskedKey = computed(() => {
         {{ m.from }} → {{ m.to }}
       </a-tag>
     </div>
-
-    <a-divider :margin="10" />
-
-    <div class="card-bottom">
-      <span class="bottom-label">写入配置</span>
-      <div class="cli-buttons">
-        <a-tooltip v-for="cli in cliButtons" :key="cli.key" :content="`将代理地址写入 ${cli.label} 配置`">
-          <a-button
-            size="mini"
-            @click="handleWriteCLI(cli.key)"
-            :disabled="!provider.enabled"
-          >
-            <template #icon>
-              <span class="cli-dot" :style="{ background: cli.color }" />
-            </template>
-            {{ cli.label }}
-          </a-button>
-        </a-tooltip>
-      </div>
-    </div>
   </a-card>
 </template>
 
 <style scoped>
 .provider-card {
   margin-bottom: 10px;
-  transition: opacity 0.2s, border-color 0.2s;
+  transition: opacity 0.2s, border-color 0.2s, box-shadow 0.2s, transform 0.15s;
+}
+.provider-card:hover:not(.provider-card--disabled) {
+  border-color: var(--color-primary-light-3);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  transform: translateY(-1px);
 }
 .provider-card--disabled {
   opacity: 0.5;
+}
+.provider-card--disabled:hover {
+  opacity: 0.7;
 }
 .card-top {
   display: flex;
@@ -172,24 +167,16 @@ const maskedKey = computed(() => {
   gap: 4px;
   margin-bottom: 4px;
 }
-.card-bottom {
+.cli-icons {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
-.bottom-label {
+.cli-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 12px;
-  color: var(--color-text-3);
-  flex-shrink: 0;
-}
-.cli-buttons {
-  display: flex;
-  gap: 6px;
-}
-.cli-dot {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
+  color: var(--color-text-2);
 }
 </style>

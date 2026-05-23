@@ -29,18 +29,18 @@ async function handleFormSubmit(data: {
   name: string
   base_url: string
   api_key: string
-  models: string[]
   default_model: string
   model_mappings: ModelMapping[]
+  cli_types: string[]
 }) {
   try {
     const payload = {
       name: data.name,
       base_url: data.base_url,
       api_key: data.api_key,
-      models: data.models,
       default_model: data.default_model,
       model_mappings: data.model_mappings,
+      cli_types: data.cli_types,
     }
     if (editingProvider.value) {
       await store.updateProvider(editingProvider.value.id, payload)
@@ -72,7 +72,7 @@ async function handleDelete(id: string) {
       <div class="content-header">
         <div>
           <h2>模型提供商</h2>
-          <p class="subtitle">管理 AI 模型提供方，启用后参与反代路由，点击按钮写入 CLI 配置</p>
+          <p class="subtitle">管理 AI 模型提供方，启用后参与反代路由</p>
         </div>
         <a-button type="primary" @click="openAddForm">
           <template #icon>+</template>
