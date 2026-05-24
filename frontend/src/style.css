@@ -1,7 +1,36 @@
+:root {
+  --app-bg-1: #ffffff;
+  --app-bg-2: #fafafa;
+  --app-border: #e0e0e6;
+  --app-border-2: #efeff5;
+  --app-text-2: #333639;
+  --app-text-3: #8a8f8d;
+  --app-fill-1: #f7f7fa;
+  --app-fill-2: #f2f3f5;
+  --app-danger: #d03050;
+  --app-success: #18a058;
+  --app-warning: #f0a020;
+}
+
+:root.dark {
+  --app-bg-1: #18181c;
+  --app-bg-2: #242428;
+  --app-border: #363639;
+  --app-border-2: #2c2c30;
+  --app-text-2: #ffffffd1;
+  --app-text-3: #ffffff73;
+  --app-fill-1: #ffffff0f;
+  --app-fill-2: #ffffff14;
+  --app-danger: #e88080;
+  --app-success: #63e2b7;
+  --app-warning: #f2c97d;
+}
+
 html, body, #app {
   margin: 0;
   padding: 0;
   width: 100%;
   height: 100%;
-  background: var(--color-bg-1);
+  background: var(--app-bg-1);
+  color: var(--app-text-2);
 }

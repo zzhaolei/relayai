@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Message } from '@arco-design/web-vue'
+import { useAppMessage } from '../composables/useMessage'
 import { useAppStore, CLI_TYPES } from '../stores/app'
 import type { CLITypeMeta } from '../stores/app'
 import CLIIcon from './CLIIcon.vue'
 
 const store = useAppStore()
+const message = useAppMessage()
 
 const isRestarting = ref(false)
 
@@ -14,9 +15,9 @@ const statusText = computed(() => {
   return store.proxyStatus.running ? '运行中' : '已停止'
 })
 
-const statusColor = computed(() => {
-  if (isRestarting.value) return 'orange'
-  return store.proxyStatus.running ? 'green' : 'red'
+const statusType = computed(() => {
+  if (isRestarting.value) return 'warning'
+  return store.proxyStatus.running ? 'success' : 'error'
 })
 
 const showConfigModal = ref(false)
@@ -74,18 +75,18 @@ async function handleRestart() {
 async function copyToClipboard(text: string) {
   try {
     await navigator.clipboard.writeText(text)
-    Message.success({ content: '已复制', duration: 1500 })
+    message.success('已复制')
   } catch {
-    Message.error('复制失败')
+    message.error('复制失败')
   }
 }
 
 async function handleWriteCLI(cliType: string) {
   try {
     await store.writeCLIConfig(cliType)
-    Message.success({ content: `${cliType} 配置已写入`, duration: 2000 })
+    message.success(`${cliType} 配置已写入`)
   } catch (e: any) {
-    Message.error(e?.message || '写入失败')
+    message.error(e?.message || '写入失败')
   }
 }
 
@@ -93,11 +94,6 @@ function showConfig(ep: CLITypeMeta & { url: string }) {
   selectedEndpoint.value = ep
   showFullKey.value = false
   showConfigModal.value = true
-}
-
-function closeConfigModal() {
-  showConfigModal.value = false
-  selectedEndpoint.value = null
 }
 
 async function copyConfig() {
@@ -108,187 +104,126 @@ async function copyConfig() {
 </script>
 
 <template>
-  <div class="proxy-status-bar">
+  <n-card size="small" :bordered="false" style="margin-bottom: 8px">
     <div class="status-row">
-      <div class="status-left">
-        <div class="status-dot" :class="{ active: store.proxyStatus.running, restarting: isRestarting }" />
-        <span class="status-label">代理服务</span>
-        <a-tag :color="statusColor" size="small">
-          {{ statusText }}
-        </a-tag>
+      <div style="display: flex; align-items: center; gap: 10px">
+        <span class="status-dot" :class="{ active: store.proxyStatus.running, restarting: isRestarting }"></span>
+        <span>代理服务</span>
+        <n-tag :type="statusType" size="small" style="min-width: 48px; text-align: center">{{ statusText }}</n-tag>
       </div>
-      <div class="status-right">
-        <a-button
-          type="text"
-          size="mini"
-          @click="handleRestart"
+      <div style="display: flex; align-items: center; gap: 8px">
+        <n-button
+          text
+          size="tiny"
           :disabled="!store.proxyStatus.running || isRestarting"
           :loading="isRestarting"
+          class="restart-btn"
+          @click="handleRestart"
         >
           重启服务
-        </a-button>
-        <a-switch
-          :model-value="store.proxyStatus.running"
-          @change="handleToggle"
+        </n-button>
+        <n-switch
+          :value="store.proxyStatus.running"
+          @update:value="handleToggle"
           size="small"
         />
       </div>
     </div>
-    <div class="endpoints-row">
-      <div v-for="ep in proxyEndpoints" :key="ep.key" class="endpoint-card">
-        <div class="endpoint-top">
-          <CLIIcon :type="ep.key as 'claude' | 'codex'" :size="14" />
-          <span class="endpoint-label">{{ ep.label }}</span>
+
+    <div style="display: flex; gap: 8px">
+      <n-card
+        v-for="ep in proxyEndpoints"
+        :key="ep.key"
+        size="small"
+        style="width: 140px"
+        hoverable
+      >
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <div style="display: flex; align-items: center; gap: 6px">
+            <CLIIcon :type="ep.key as 'claude' | 'codex'" :size="14" />
+            <span style="font-weight: 500">{{ ep.label }}</span>
+          </div>
+          <div style="display: flex; justify-content: flex-end; gap: 4px">
+            <n-button text size="tiny" @click="showConfig(ep)">配置</n-button>
+            <n-button type="primary" size="tiny" @click="handleWriteCLI(ep.key)">写入</n-button>
+          </div>
         </div>
-        <div class="endpoint-actions">
-          <a-button type="text" size="mini" @click="showConfig(ep)">配置</a-button>
-          <a-button type="primary" size="mini" @click="handleWriteCLI(ep.key)">写入</a-button>
-        </div>
-      </div>
+      </n-card>
     </div>
 
-    <a-modal
-      v-model:visible="showConfigModal"
+    <n-modal
+      :show="showConfigModal"
+      @update:show="(v: boolean) => showConfigModal = v"
       :title="selectedEndpoint?.label + ' 配置'"
-      :width="400"
-      :footer="false"
+      preset="card"
+      style="width: 400px"
     >
-      <div v-if="selectedEndpoint" class="config-content">
-        <div class="config-item">
-          <div class="config-label">Base URL</div>
-          <div class="config-value-row">
-            <code class="config-value">{{ selectedEndpoint.url }}</code>
-            <a-button type="text" size="mini" @click="copyToClipboard(selectedEndpoint!.url)">复制</a-button>
-          </div>
+      <div v-if="selectedEndpoint" style="display: flex; flex-direction: column; gap: 16px">
+        <div>
+          <n-text depth="3" style="font-size: 12px; font-weight: 500">Base URL</n-text>
+          <n-card size="small" style="margin-top: 4px">
+            <div style="display: flex; align-items: center; gap: 8px">
+              <n-text code style="flex: 1; word-break: break-all">{{ selectedEndpoint.url }}</n-text>
+              <n-button text size="tiny" @click="copyToClipboard(selectedEndpoint!.url)">复制</n-button>
+            </div>
+          </n-card>
         </div>
-        <div class="config-item">
-          <div class="config-label">API Key</div>
-          <div class="config-value-row">
-            <code class="config-value">{{ showFullKey ? apiKey : maskedKey }}</code>
-            <a-button v-if="apiKey" type="text" size="mini" @click="showFullKey = !showFullKey">
-              {{ showFullKey ? '隐藏' : '查看' }}
-            </a-button>
-            <a-button type="text" size="mini" @click="copyToClipboard(apiKey)" :disabled="!apiKey">复制</a-button>
-          </div>
+        <div>
+          <n-text depth="3" style="font-size: 12px; font-weight: 500">API Key</n-text>
+          <n-card size="small" style="margin-top: 4px">
+            <div style="display: flex; align-items: center; gap: 8px">
+              <n-text code style="flex: 1; word-break: break-all">{{ showFullKey ? apiKey : maskedKey }}</n-text>
+              <n-button v-if="apiKey" text size="tiny" @click="showFullKey = !showFullKey">
+                {{ showFullKey ? '隐藏' : '查看' }}
+              </n-button>
+              <n-button text size="tiny" :disabled="!apiKey" @click="copyToClipboard(apiKey)">复制</n-button>
+            </div>
+          </n-card>
         </div>
-        <div class="config-actions">
-          <a-button type="primary" @click="copyConfig">复制全部</a-button>
+        <div style="display: flex; justify-content: flex-end">
+          <n-button type="primary" @click="copyConfig">复制全部</n-button>
         </div>
       </div>
-    </a-modal>
-  </div>
+    </n-modal>
+  </n-card>
 </template>
 
 <style scoped>
-.proxy-status-bar {
-  padding: 12px 16px;
-  background: var(--color-bg-2);
-  border-bottom: 1px solid var(--color-border);
-}
 .status-row {
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
-}
-.status-left {
-  display: flex;
   align-items: center;
-  gap: 10px;
+  margin-bottom: 12px;
+  height: 28px;
+}
+.restart-btn {
+  min-width: 64px;
+  height: 22px !important;
 }
 .status-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--color-danger-light-4);
+  background: var(--n-error-color, #d03050);
+  flex-shrink: 0;
   transition: background 0.3s;
 }
 .status-dot.active {
-  background: var(--color-success-light-4);
-  box-shadow: 0 0 6px var(--color-success-light-3);
+  background: var(--n-success-color, #18a058);
+  box-shadow: 0 0 0 0 var(--n-success-color, #18a058);
+  animation: pulse-green 2s ease-in-out infinite;
 }
 .status-dot.restarting {
-  background: var(--color-warning-light-4);
-  box-shadow: 0 0 6px var(--color-warning-light-3);
-  animation: pulse 1s infinite;
+  background: var(--n-warning-color, #f0a020);
+  box-shadow: 0 0 0 0 var(--n-warning-color, #f0a020);
+  animation: pulse-yellow 1s ease-in-out infinite;
 }
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+@keyframes pulse-green {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(24, 160, 88, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(24, 160, 88, 0); }
 }
-.status-label {
-  font-size: 13px;
-  font-weight: 500;
-}
-.status-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.endpoints-row {
-  display: flex;
-  gap: 8px;
-}
-.endpoint-card {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  background: var(--color-fill-1);
-  border-radius: 8px;
-  padding: 8px 10px;
-  border: 1px solid var(--color-border-2);
-  min-height: 56px;
-  width: 140px;
-}
-.endpoint-top {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.endpoint-label {
-  font-size: 13px;
-  font-weight: 500;
-}
-.endpoint-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 4px;
-  margin-top: 6px;
-}
-.config-content {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-.config-item {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.config-label {
-  font-size: 12px;
-  color: var(--color-text-3);
-  font-weight: 500;
-}
-.config-value-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--color-fill-1);
-  padding: 8px;
-  border-radius: 4px;
-}
-.config-value {
-  flex: 1;
-  font-size: 13px;
-  font-family: monospace;
-  color: var(--color-text-2);
-  word-break: break-all;
-}
-.config-actions {
-  display: flex;
-  justify-content: flex-end;
-  padding-top: 8px;
-  border-top: 1px solid var(--color-border-2);
+@keyframes pulse-yellow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(240, 160, 32, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(240, 160, 32, 0); }
 }
 </style>

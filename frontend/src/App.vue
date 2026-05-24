@@ -1,71 +1,46 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useTheme } from './composables/useTheme'
+import type { ThemeMode } from './composables/useTheme'
 import ProvidersView from './views/ProvidersView.vue'
 import LogViewer from './components/LogViewer.vue'
 
 const activeTab = ref('providers')
+const { themeMode, isDark, theme, setTheme } = useTheme()
+
+const themeOptions = [
+  { label: '跟随系统', value: 'system' as ThemeMode },
+  { label: '浅色', value: 'light' as ThemeMode },
+  { label: '深色', value: 'dark' as ThemeMode },
+]
 </script>
 
 <template>
-  <div class="app-container">
-    <div class="app-tabs">
-      <div
-        class="tab-item"
-        :class="{ active: activeTab === 'providers' }"
-        @click="activeTab = 'providers'"
-      >
-        提供商
-      </div>
-      <div
-        class="tab-item"
-        :class="{ active: activeTab === 'logs' }"
-        @click="activeTab = 'logs'"
-      >
-        日志
-      </div>
-    </div>
-    <div class="app-content">
-      <ProvidersView v-if="activeTab === 'providers'" />
-      <LogViewer v-else />
-    </div>
-  </div>
+  <n-config-provider :theme="theme">
+    <n-message-provider>
+    <n-layout style="height: 100vh; display: flex; flex-direction: column">
+      <n-layout-header bordered style="padding: 0 16px; flex-shrink: 0">
+        <div style="display: flex; justify-content: space-between; align-items: center">
+          <n-tabs v-model:value="activeTab" type="line" animated>
+            <n-tab name="providers">提供商</n-tab>
+            <n-tab name="logs">日志</n-tab>
+          </n-tabs>
+          <n-radio-group
+            :value="themeMode"
+            @update:value="(val: ThemeMode) => setTheme(val)"
+            size="small"
+          >
+            <n-radio-button v-for="opt in themeOptions" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </n-radio-button>
+          </n-radio-group>
+        </div>
+      </n-layout-header>
+      <n-layout-content style="flex: 1; overflow: hidden">
+        <ProvidersView v-if="activeTab === 'providers'" />
+        <LogViewer v-else />
+      </n-layout-content>
+    </n-layout>
+    </n-message-provider>
+  </n-config-provider>
 </template>
-
-<style scoped>
-.app-container {
-  width: 100%;
-  height: 100vh;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-.app-tabs {
-  display: flex;
-  gap: 0;
-  background: var(--color-bg-2);
-  border-bottom: 1px solid var(--color-border);
-  padding: 0 16px;
-  flex-shrink: 0;
-}
-.tab-item {
-  padding: 10px 20px;
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--color-text-3);
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  transition: color 0.2s, border-color 0.2s;
-  user-select: none;
-}
-.tab-item:hover {
-  color: var(--color-text-2);
-}
-.tab-item.active {
-  color: var(--color-primary-6);
-  border-bottom-color: var(--color-primary-6);
-}
-.app-content {
-  flex: 1;
-  overflow: hidden;
-}
-</style>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { Message } from '@arco-design/web-vue'
+import { useAppMessage } from '../composables/useMessage'
 import { useAppStore } from '../stores/app'
 import type { Provider, ModelMapping } from '../stores/app'
 import ProxyStatusBar from '../components/ProxyStatusBar.vue'
@@ -8,6 +8,7 @@ import ProviderCard from '../components/ProviderCard.vue'
 import ProviderForm from '../components/ProviderForm.vue'
 
 const store = useAppStore()
+const message = useAppMessage()
 const formVisible = ref(false)
 const editingProvider = ref<Provider | null>(null)
 
@@ -44,48 +45,45 @@ async function handleFormSubmit(data: {
     }
     if (editingProvider.value) {
       await store.updateProvider(editingProvider.value.id, payload)
-      Message.success('更新成功')
+      message.success('更新成功')
     } else {
       await store.createProvider(payload)
-      Message.success('添加成功')
+      message.success('添加成功')
     }
   } catch (e: any) {
-    Message.error(e?.message || '操作失败')
+    message.error(e?.message || '操作失败')
   }
 }
 
 async function handleDelete(id: string) {
   try {
     await store.deleteProvider(id)
-    Message.success('已删除')
+    message.success('已删除')
   } catch (e: any) {
-    Message.error(e?.message || '删除失败')
+    message.error(e?.message || '删除失败')
   }
 }
 </script>
 
 <template>
-  <div class="providers-view">
+  <div style="height: 100%; display: flex; flex-direction: column">
     <ProxyStatusBar />
 
-    <div class="content">
-      <div class="content-header">
+    <div style="flex: 1; padding: 20px; overflow-y: auto">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px">
         <div>
-          <h2>模型提供商</h2>
-          <p class="subtitle">管理 AI 模型提供方，启用后参与反代路由</p>
+          <n-text strong style="font-size: 18px; display: block; margin-bottom: 4px">模型提供商</n-text>
+          <n-text depth="3" style="font-size: 13px">管理 AI 模型提供方，启用后参与反代路由</n-text>
         </div>
-        <a-button type="primary" @click="openAddForm">
-          <template #icon>+</template>
-          添加提供商
-        </a-button>
+        <n-button type="primary" @click="openAddForm">+ 添加提供商</n-button>
       </div>
 
-      <a-spin :loading="store.loading" style="width: 100%">
-        <div v-if="store.providers.length === 0 && !store.loading" class="empty-state">
-          <a-empty description="暂无提供商">
-            <a-button type="primary" @click="openAddForm">添加第一个提供商</a-button>
-          </a-empty>
-        </div>
+      <n-spin :show="store.loading" style="width: 100%">
+        <n-empty v-if="store.providers.length === 0 && !store.loading" description="暂无提供商" style="padding: 60px 0">
+          <template #extra>
+            <n-button type="primary" @click="openAddForm">添加第一个提供商</n-button>
+          </template>
+        </n-empty>
 
         <ProviderCard
           v-for="p in store.providers"
@@ -94,7 +92,7 @@ async function handleDelete(id: string) {
           @edit="openEditForm"
           @delete="handleDelete"
         />
-      </a-spin>
+      </n-spin>
     </div>
 
     <ProviderForm
@@ -104,35 +102,3 @@ async function handleDelete(id: string) {
     />
   </div>
 </template>
-
-<style scoped>
-.providers-view {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-}
-.content {
-  flex: 1;
-  padding: 20px;
-  overflow-y: auto;
-}
-.content-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 20px;
-}
-.content-header h2 {
-  margin: 0 0 4px 0;
-  font-size: 18px;
-  font-weight: 600;
-}
-.subtitle {
-  margin: 0;
-  font-size: 13px;
-  color: var(--color-text-3);
-}
-.empty-state {
-  padding: 60px 0;
-}
-</style>
