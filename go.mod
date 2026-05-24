@@ -1,4 +1,4 @@
-module one-switch
+module relay-ai
 
 go 1.26
 

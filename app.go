@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"log"
 
-	"one-switch/internal/cli"
-	"one-switch/internal/config"
-	"one-switch/internal/proxy"
+	"relay-ai/internal/cli"
+	"relay-ai/internal/config"
+	"relay-ai/internal/proxy"
 )
 
 type App struct {

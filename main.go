@@ -15,7 +15,7 @@ func main() {
 	app := NewApp()
 
 	err := wails.Run(&options.App{
-		Title:     "One Switch",
+		Title:     "RelayAI",
 		Width:     900,
 		Height:    640,
 		MinWidth:  800,

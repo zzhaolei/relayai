@@ -18,7 +18,7 @@ func NewStore() (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	dir := filepath.Join(home, ".one-switch")
+	dir := filepath.Join(home, ".relayai")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, err
 	}

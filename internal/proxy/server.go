@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"sync"
 
-	"one-switch/internal/config"
+	"relay-ai/internal/config"
 )
 
 type Status struct {

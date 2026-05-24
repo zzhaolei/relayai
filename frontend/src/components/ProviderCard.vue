@@ -66,10 +66,16 @@ const cliLabels: Record<string, string> = Object.fromEntries(
         <n-text strong style="font-size: 15px">{{ provider.name }}</n-text>
       </div>
       <div style="display: flex; gap: 4px">
-        <n-button text size="small" @click="emit('edit', provider)">编辑</n-button>
+        <n-button quaternary size="small" @click="emit('edit', provider)">
+          <template #icon><n-icon><svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path d="M2.695 14.763l-1.262 3.154a.5.5 0 00.65.65l3.155-1.262a4 4 0 001.343-.885L17.5 5.5a2.121 2.121 0 00-3-3L3.58 13.42a4 4 0 00-.885 1.343z"/></svg></n-icon></template>
+          编辑
+        </n-button>
         <n-popconfirm @positive-click="emit('delete', provider.id)">
           <template #trigger>
-            <n-button text type="error" size="small">删除</n-button>
+            <n-button quaternary type="error" size="small">
+              <template #icon><n-icon><svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022 1.005 11.969A2.75 2.75 0 007.765 20h4.47a2.75 2.75 0 002.745-2.58l1.005-11.97.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clip-rule="evenodd"/></svg></n-icon></template>
+              删除
+            </n-button>
           </template>
           确定删除该提供商？
         </n-popconfirm>

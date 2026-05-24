@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"one-switch/internal/config"
+	"relay-ai/internal/config"
 )
 
 const (

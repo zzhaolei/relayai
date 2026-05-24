@@ -28,7 +28,7 @@ func codexEnvPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, codexDir, "oneswitch_env.sh"), nil
+	return filepath.Join(home, codexDir, "relayai_env.sh"), nil
 }
 
 func ReadCodexConfig() (map[string]interface{}, error) {
@@ -72,15 +72,15 @@ func EnableCodexProvider(baseURL, apiKey string) error {
 		}
 	}
 
-	m["model_provider"] = "oneswitch"
+	m["model_provider"] = "relayai"
 
 	providers, _ := m["model_providers"].(map[string]interface{})
 	if providers == nil {
 		providers = make(map[string]interface{})
 	}
 
-	providers["oneswitch"] = map[string]interface{}{
-		"name":                 "one-switch",
+	providers["relayai"] = map[string]interface{}{
+		"name":                 "RelayAI",
 		"base_url":             strings.TrimRight(baseURL, "/"),
 		"requires_openai_auth": true,
 		"wire_api":             "responses",
@@ -94,7 +94,7 @@ func EnableCodexProvider(baseURL, apiKey string) error {
 
 	// Write env file for OPENAI_API_KEY
 	envPath, _ := codexEnvPath()
-	envContent := fmt.Sprintf("# one-switch auto-generated\nexport OPENAI_API_KEY=\"%s\"\n", apiKey)
+	envContent := fmt.Sprintf("# RelayAI auto-generated\nexport OPENAI_API_KEY=\"%s\"\n", apiKey)
 	return os.WriteFile(envPath, []byte(envContent), 0644)
 }
 
@@ -107,12 +107,12 @@ func DisableCodexProvider() error {
 		return err
 	}
 
-	if m["model_provider"] == "oneswitch" {
+	if m["model_provider"] == "relayai" {
 		delete(m, "model_provider")
 	}
 
 	if providers, ok := m["model_providers"].(map[string]interface{}); ok {
-		delete(providers, "oneswitch")
+		delete(providers, "relayai")
 		m["model_providers"] = providers
 	}
 
@@ -128,19 +128,19 @@ func IsCodexEnabled(proxyAddr string) bool {
 	if err != nil {
 		return false
 	}
-	if m["model_provider"] != "oneswitch" {
+	if m["model_provider"] != "relayai" {
 		return false
 	}
 	providers, ok := m["model_providers"].(map[string]interface{})
 	if !ok {
 		return false
 	}
-	oneswitch, ok := providers["oneswitch"].(map[string]interface{})
+	relayai, ok := providers["relayai"].(map[string]interface{})
 	if !ok {
 		return false
 	}
 	expected := fmt.Sprintf("http://%s/openai", proxyAddr)
-	return oneswitch["base_url"] == expected
+	return relayai["base_url"] == expected
 }
 
 func GetCodexEnvFilePath() string {
