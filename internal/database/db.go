@@ -84,9 +84,6 @@ func (db *DB) createTables() error {
 			model TEXT,
 			status_code INTEGER,
 			duration_ms INTEGER,
-			prompt_tokens INTEGER DEFAULT 0,
-			completion_tokens INTEGER DEFAULT 0,
-			total_tokens INTEGER DEFAULT 0,
 			error TEXT,
 			response_body TEXT
 		)`,
@@ -119,7 +116,7 @@ func (db *DB) migrateTables() error {
 		"providers.completion_tokens": "ALTER TABLE providers ADD COLUMN completion_tokens INTEGER DEFAULT 0",
 		"providers.total_tokens":      "ALTER TABLE providers ADD COLUMN total_tokens INTEGER DEFAULT 0",
 		"providers.usage_updated_at":  "ALTER TABLE providers ADD COLUMN usage_updated_at INTEGER DEFAULT 0",
-		"request_logs.provider_id":    "ALTER TABLE request_logs ADD COLUMN provider_id TEXT",
+		"request_logs.provider_id":       "ALTER TABLE request_logs ADD COLUMN provider_id TEXT",
 	}
 
 	for key, statement := range columns {

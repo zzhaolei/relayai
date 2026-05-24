@@ -144,7 +144,12 @@ export const useAppStore = defineStore('app', () => {
   async function fetchAll() {
     loading.value = true
     try {
-      await Promise.all([fetchProxyStatus(), fetchProviderUsageStats()])
+      await Promise.race([
+        Promise.all([fetchProxyStatus(), fetchProviderUsageStats()]),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 10_000)),
+      ])
+    } catch {
+      // 加载失败时保持现有数据，静默处理
     } finally {
       loading.value = false
     }
@@ -185,7 +190,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   async function fetchLogs() {
-    logs.value = await api().GetProxyLogs()
+    logs.value = (await api().GetProxyLogs()) || []
     logsSizeKB.value = await api().GetProxyLogsSizeKB()
     totalTokens.value = logs.value.reduce((sum, log) => sum + (log.total_tokens || 0), 0)
   }

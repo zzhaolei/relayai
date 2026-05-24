@@ -41,9 +41,6 @@ func TestGetProviderUsageStats(t *testing.T) {
 			model TEXT,
 			status_code INTEGER,
 			duration_ms INTEGER,
-			prompt_tokens INTEGER DEFAULT 0,
-			completion_tokens INTEGER DEFAULT 0,
-			total_tokens INTEGER DEFAULT 0,
 			error TEXT,
 			response_body TEXT
 		);
@@ -70,10 +67,10 @@ func TestGetProviderUsageStats(t *testing.T) {
 	}
 
 	logger := NewLogger(db)
-	logger.Add(RequestLog{ProviderID: "provider-openai", Provider: "OpenAI", PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15})
-	logger.Add(RequestLog{ProviderID: "provider-openai", Provider: "OpenAI", PromptTokens: 7, CompletionTokens: 3, TotalTokens: 10})
-	logger.Add(RequestLog{ProviderID: "provider-anthropic", Provider: "Anthropic", PromptTokens: 4, CompletionTokens: 6, TotalTokens: 10})
-	logger.Add(RequestLog{Provider: "OpenAI", PromptTokens: 100, CompletionTokens: 100, TotalTokens: 200})
+	logger.Add(RequestLog{ProviderID: "provider-openai", Provider: "OpenAI"}, 10, 5, 15)
+	logger.Add(RequestLog{ProviderID: "provider-openai", Provider: "OpenAI"}, 7, 3, 10)
+	logger.Add(RequestLog{ProviderID: "provider-anthropic", Provider: "Anthropic"}, 4, 6, 10)
+	logger.Add(RequestLog{Provider: "OpenAI"}, 100, 100, 200)
 
 	stats := logger.GetProviderUsageStats()
 	if len(stats) != 2 {

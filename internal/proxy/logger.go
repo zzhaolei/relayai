@@ -12,21 +12,18 @@ const (
 )
 
 type RequestLog struct {
-	ID               string `json:"id"`
-	Time             int64  `json:"time"`
-	Method           string `json:"method"`
-	Path             string `json:"path"`
-	CLIType          string `json:"cli_type"`
-	ProviderID       string `json:"provider_id,omitempty"`
-	Provider         string `json:"provider"`
-	Model            string `json:"model"`
-	StatusCode       int    `json:"status_code"`
-	Duration         int64  `json:"duration_ms"`
-	PromptTokens     int    `json:"prompt_tokens"`
-	CompletionTokens int    `json:"completion_tokens"`
-	TotalTokens      int    `json:"total_tokens"`
-	Error            string `json:"error,omitempty"`
-	ResponseBody     string `json:"response_body,omitempty"`
+	ID           string `json:"id"`
+	Time         int64  `json:"time"`
+	Method       string `json:"method"`
+	Path         string `json:"path"`
+	CLIType      string `json:"cli_type"`
+	ProviderID   string `json:"provider_id,omitempty"`
+	Provider     string `json:"provider"`
+	Model        string `json:"model"`
+	StatusCode   int    `json:"status_code"`
+	Duration     int64  `json:"duration_ms"`
+	Error        string `json:"error,omitempty"`
+	ResponseBody string `json:"response_body,omitempty"`
 }
 
 type ProviderUsageStats struct {
@@ -70,7 +67,7 @@ func (l *Logger) init() {
 	}
 }
 
-func (l *Logger) Add(entry RequestLog) {
+func (l *Logger) Add(entry RequestLog, promptTokens, completionTokens, totalTokens int) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -79,31 +76,31 @@ func (l *Logger) Add(entry RequestLog) {
 	entry.Time = time.Now().UnixMilli()
 
 	_, err := l.db.Exec(
-		"INSERT INTO request_logs (id, time, method, path, cli_type, provider_id, provider, model, status_code, duration_ms, prompt_tokens, completion_tokens, total_tokens, error, response_body) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		entry.ID, entry.Time, entry.Method, entry.Path, entry.CLIType, entry.ProviderID, entry.Provider, entry.Model, entry.StatusCode, entry.Duration, entry.PromptTokens, entry.CompletionTokens, entry.TotalTokens, entry.Error, entry.ResponseBody,
+		"INSERT INTO request_logs (id, time, method, path, cli_type, provider_id, provider, model, status_code, duration_ms, error, response_body) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		entry.ID, entry.Time, entry.Method, entry.Path, entry.CLIType, entry.ProviderID, entry.Provider, entry.Model, entry.StatusCode, entry.Duration, entry.Error, entry.ResponseBody,
 	)
 	if err != nil {
 		// 日志写入失败不影响主流程
 		fmt.Printf("写入日志失败: %v\n", err)
 	}
 
-	l.addProviderUsage(entry)
+	l.addProviderUsage(entry, promptTokens, completionTokens, totalTokens)
 }
 
 func (l *Logger) GetLogs() []RequestLog {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 
-	rows, err := l.db.Query("SELECT id, time, method, path, cli_type, provider_id, provider, model, status_code, duration_ms, prompt_tokens, completion_tokens, total_tokens, error, response_body FROM request_logs ORDER BY time DESC LIMIT 500")
+	rows, err := l.db.Query("SELECT id, time, method, path, cli_type, provider_id, provider, model, status_code, duration_ms, error, response_body FROM request_logs ORDER BY time DESC LIMIT 500")
 	if err != nil {
-		return nil
+		return []RequestLog{}
 	}
 	defer rows.Close()
 
-	var logs []RequestLog
+	logs := make([]RequestLog, 0)
 	for rows.Next() {
 		var log RequestLog
-		err := rows.Scan(&log.ID, &log.Time, &log.Method, &log.Path, &log.CLIType, &log.ProviderID, &log.Provider, &log.Model, &log.StatusCode, &log.Duration, &log.PromptTokens, &log.CompletionTokens, &log.TotalTokens, &log.Error, &log.ResponseBody)
+		err := rows.Scan(&log.ID, &log.Time, &log.Method, &log.Path, &log.CLIType, &log.ProviderID, &log.Provider, &log.Model, &log.StatusCode, &log.Duration, &log.Error, &log.ResponseBody)
 		if err != nil {
 			continue
 		}
@@ -128,11 +125,11 @@ func (l *Logger) GetProviderUsageStats() []ProviderUsageStats {
 		ORDER BY created_at
 	`)
 	if err != nil {
-		return nil
+		return []ProviderUsageStats{}
 	}
 	defer rows.Close()
 
-	var stats []ProviderUsageStats
+	stats := make([]ProviderUsageStats, 0)
 	for rows.Next() {
 		var stat ProviderUsageStats
 		err := rows.Scan(&stat.ProviderID, &stat.Provider, &stat.PromptTokens, &stat.CompletionTokens, &stat.TotalTokens, &stat.UpdatedAt)
@@ -156,11 +153,11 @@ func (l *Logger) GetProviderUsageSeries(providerID string) []ProviderUsagePoint 
 		LIMIT 120
 	`, providerID)
 	if err != nil {
-		return nil
+		return []ProviderUsagePoint{}
 	}
 	defer rows.Close()
 
-	var reversed []ProviderUsagePoint
+	reversed := make([]ProviderUsagePoint, 0)
 	for rows.Next() {
 		var point ProviderUsagePoint
 		err := rows.Scan(&point.Time, &point.PromptTokens, &point.CompletionTokens, &point.TotalTokens)
@@ -177,11 +174,11 @@ func (l *Logger) GetProviderUsageSeries(providerID string) []ProviderUsagePoint 
 	return points
 }
 
-func (l *Logger) addProviderUsage(entry RequestLog) {
+func (l *Logger) addProviderUsage(entry RequestLog, promptTokens, completionTokens, totalTokens int) {
 	if entry.ProviderID == "" {
 		return
 	}
-	if entry.PromptTokens == 0 && entry.CompletionTokens == 0 && entry.TotalTokens == 0 {
+	if promptTokens == 0 && completionTokens == 0 && totalTokens == 0 {
 		return
 	}
 
@@ -192,9 +189,9 @@ func (l *Logger) addProviderUsage(entry RequestLog) {
 			total_tokens = COALESCE(total_tokens, 0) + ?,
 			usage_updated_at = ?
 		WHERE id = ?`,
-		entry.PromptTokens,
-		entry.CompletionTokens,
-		entry.TotalTokens,
+		promptTokens,
+		completionTokens,
+		totalTokens,
 		entry.Time,
 		entry.ProviderID,
 	)
@@ -213,9 +210,9 @@ func (l *Logger) addProviderUsage(entry RequestLog) {
 			total_tokens = total_tokens + excluded.total_tokens`,
 		entry.ProviderID,
 		bucketStart,
-		entry.PromptTokens,
-		entry.CompletionTokens,
-		entry.TotalTokens,
+		promptTokens,
+		completionTokens,
+		totalTokens,
 	)
 	if err != nil {
 		// 曲线采样失败不影响代理请求。

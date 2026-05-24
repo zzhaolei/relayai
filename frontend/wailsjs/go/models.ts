@@ -178,9 +178,6 @@ export namespace proxy {
 	    model: string;
 	    status_code: number;
 	    duration_ms: number;
-	    prompt_tokens: number;
-	    completion_tokens: number;
-	    total_tokens: number;
 	    error?: string;
 	    response_body?: string;
 	
@@ -200,9 +197,6 @@ export namespace proxy {
 	        this.model = source["model"];
 	        this.status_code = source["status_code"];
 	        this.duration_ms = source["duration_ms"];
-	        this.prompt_tokens = source["prompt_tokens"];
-	        this.completion_tokens = source["completion_tokens"];
-	        this.total_tokens = source["total_tokens"];
 	        this.error = source["error"];
 	        this.response_body = source["response_body"];
 	    }

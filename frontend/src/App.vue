@@ -37,8 +37,8 @@ const themeOptions = [
         </div>
       </n-layout-header>
       <n-layout-content style="flex: 1; overflow: hidden">
-        <ProvidersView v-if="activeTab === 'providers'" />
-        <LogViewer v-else />
+        <ProvidersView v-show="activeTab === 'providers'" />
+        <LogViewer v-show="activeTab === 'logs'" :active="activeTab === 'logs'" />
       </n-layout-content>
     </n-layout>
     </n-message-provider>

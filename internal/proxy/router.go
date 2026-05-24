@@ -23,8 +23,8 @@ const (
 func newRouter(store *config.Store, logger *Logger) http.Handler {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/anthropic/", makeHandler(store, logger, cliClaude, "/anthropic"))
-	mux.HandleFunc("/openai/", makeHandler(store, logger, cliCodex, "/openai"))
+	mux.HandleFunc("/anthropic/{path...}", makeHandler(store, logger, cliClaude, "/anthropic"))
+	mux.HandleFunc("/openai/{path...}", makeHandler(store, logger, cliCodex, "/openai"))
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
@@ -54,7 +54,7 @@ func makeHandler(store *config.Store, logger *Logger, cliType, prefix string) ht
 				StatusCode: http.StatusBadGateway,
 				Duration:   time.Since(start).Milliseconds(),
 				Error:      "no provider configured for " + cliType,
-			})
+			}, 0, 0, 0)
 			http.Error(w, `{"error":{"message":"no provider configured for `+cliType+`"}}`, http.StatusBadGateway)
 			return
 		}
@@ -63,6 +63,11 @@ func makeHandler(store *config.Store, logger *Logger, cliType, prefix string) ht
 		upstreamPath := strings.TrimPrefix(r.URL.Path, prefix)
 		if upstreamPath == "" || upstreamPath == r.URL.Path {
 			upstreamPath = r.URL.Path
+		}
+
+		// Codex uses Responses API, most providers only support Chat Completions
+		if cliType == cliCodex && upstreamPath == "/v1/responses" {
+			upstreamPath = "/v1/chat/completions"
 		}
 
 		// Buffer request body for model transformation and retry
@@ -78,11 +83,16 @@ func makeHandler(store *config.Store, logger *Logger, cliType, prefix string) ht
 					StatusCode: http.StatusBadRequest,
 					Duration:   time.Since(start).Milliseconds(),
 					Error:      "failed to read request body",
-				})
+				}, 0, 0, 0)
 				http.Error(w, `{"error":{"message":"failed to read request body"}}`, http.StatusBadRequest)
 				return
 			}
 			r.Body.Close()
+		}
+
+		// Responses API → Chat Completions body conversion
+		if cliType == cliCodex && strings.HasSuffix(r.URL.Path, "/v1/responses") {
+			bodyBytes = responsesToChat(bodyBytes)
 		}
 
 		// Extract original model from body
@@ -119,13 +129,10 @@ func makeHandler(store *config.Store, logger *Logger, cliType, prefix string) ht
 					Model:            originalModel,
 					StatusCode:       result.StatusCode,
 					Duration:         time.Since(start).Milliseconds(),
-					PromptTokens:     result.PromptTokens,
-					CompletionTokens: result.CompletionTokens,
-					TotalTokens:      result.TotalTokens,
 					Error:            result.Error,
 					ResponseBody:     result.ResponseBody,
-				})
-				return
+				}, result.PromptTokens, result.CompletionTokens, result.TotalTokens)
+				return 
 			}
 
 			lastErr = result.Error
@@ -139,9 +146,29 @@ func makeHandler(store *config.Store, logger *Logger, cliType, prefix string) ht
 			StatusCode: http.StatusBadGateway,
 			Duration:   time.Since(start).Milliseconds(),
 			Error:      lastErr,
-		})
+		}, 0, 0, 0)
 		http.Error(w, `{"error":{"message":"all providers failed for `+cliType+`"}}`, http.StatusBadGateway)
 	}
+}
+
+// responsesToChat converts OpenAI Responses API request body to Chat Completions format.
+func responsesToChat(body []byte) []byte {
+	if len(body) == 0 {
+		return body
+	}
+	var m map[string]any
+	if err := json.Unmarshal(body, &m); err != nil {
+		return body
+	}
+	if input, ok := m["input"]; ok {
+		m["messages"] = input
+		delete(m, "input")
+	}
+	out, err := json.Marshal(m)
+	if err != nil {
+		return body
+	}
+	return out
 }
 
 func transformBody(body []byte, provider *config.Provider) []byte {

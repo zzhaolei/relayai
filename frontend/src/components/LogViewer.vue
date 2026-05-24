@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useAppMessage } from '../composables/useMessage'
 import { useAppStore } from '../stores/app'
 import type { CLIType } from '../stores/app'
 import CLIIcon from './CLIIcon.vue'
 import { copyToClipboard, formatDuration } from '../utils'
+
+const props = defineProps<{ active: boolean }>()
 
 const store = useAppStore()
 const message = useAppMessage()
@@ -54,10 +56,18 @@ function toggleAutoRefresh() {
 
 onMounted(() => {
   store.fetchLogs()
-  if (autoRefresh.value) startAutoRefresh()
+  if (props.active) startAutoRefresh()
 })
 
 onUnmounted(() => stopAutoRefresh())
+
+watch(() => props.active, (val) => {
+  if (val && autoRefresh.value) {
+    startAutoRefresh()
+  } else {
+    stopAutoRefresh()
+  }
+})
 </script>
 
 <template>
