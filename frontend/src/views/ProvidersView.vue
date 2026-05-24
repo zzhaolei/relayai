@@ -70,6 +70,8 @@ async function handleDelete(id: string) {
   <div style="height: 100%; display: flex; flex-direction: column">
     <ProxyStatusBar />
 
+    <n-divider style="margin: 0" />
+
     <div style="flex: 1; padding: 20px; overflow-y: auto">
       <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px">
         <div>

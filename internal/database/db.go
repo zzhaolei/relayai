@@ -76,6 +76,9 @@ func (db *DB) createTables() error {
 			model TEXT,
 			status_code INTEGER,
 			duration_ms INTEGER,
+			prompt_tokens INTEGER DEFAULT 0,
+			completion_tokens INTEGER DEFAULT 0,
+			total_tokens INTEGER DEFAULT 0,
 			error TEXT,
 			response_body TEXT
 		)`,

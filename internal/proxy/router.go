@@ -111,15 +111,18 @@ func makeHandler(store *config.Store, logger *Logger, cliType, prefix string) ht
 			result := tryProvider(w, r, upstreamURL, providerBody, &provider, i < len(providers)-1)
 			if result.StatusCode > 0 {
 				logger.Add(RequestLog{
-					Method:       r.Method,
-					Path:         r.URL.Path,
-					CLIType:      cliType,
-					Provider:     provider.Name,
-					Model:        originalModel,
-					StatusCode:   result.StatusCode,
-					Duration:     time.Since(start).Milliseconds(),
-					Error:        result.Error,
-					ResponseBody: result.ResponseBody,
+					Method:           r.Method,
+					Path:             r.URL.Path,
+					CLIType:          cliType,
+					Provider:         provider.Name,
+					Model:            originalModel,
+					StatusCode:       result.StatusCode,
+					Duration:         time.Since(start).Milliseconds(),
+					PromptTokens:     result.PromptTokens,
+					CompletionTokens: result.CompletionTokens,
+					TotalTokens:      result.TotalTokens,
+					Error:            result.Error,
+					ResponseBody:     result.ResponseBody,
 				})
 				return
 			}
@@ -203,9 +206,12 @@ func extractModel(body []byte) string {
 
 // tryProviderResult holds the result of a provider attempt.
 type tryProviderResult struct {
-	StatusCode   int
-	Error        string
-	ResponseBody string
+	StatusCode       int
+	Error            string
+	ResponseBody     string
+	PromptTokens     int
+	CompletionTokens int
+	TotalTokens      int
 }
 
 // tryProvider sends the request to the upstream provider.
@@ -263,7 +269,18 @@ func tryProvider(w http.ResponseWriter, r *http.Request, upstreamURL string, bod
 		errStr = fmt.Sprintf("upstream returned %d", resp.StatusCode)
 		respBodyStr = sanitizeResponseBody(respBody)
 	}
-	return tryProviderResult{StatusCode: resp.StatusCode, Error: errStr, ResponseBody: respBodyStr}
+
+	// Parse token usage from response
+	promptTokens, completionTokens, totalTokens := extractTokenUsage(respBody)
+
+	return tryProviderResult{
+		StatusCode:       resp.StatusCode,
+		Error:            errStr,
+		ResponseBody:     respBodyStr,
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
+		TotalTokens:      totalTokens,
+	}
 }
 
 func singleJoiningSlash(a, b string) string {
@@ -285,6 +302,27 @@ func contains(slice []string, item string) bool {
 		}
 	}
 	return false
+}
+
+// extractTokenUsage extracts token usage from API response.
+func extractTokenUsage(body []byte) (int, int, int) {
+	if len(body) == 0 {
+		return 0, 0, 0
+	}
+
+	var resp struct {
+		Usage struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+			TotalTokens      int `json:"total_tokens"`
+		} `json:"usage"`
+	}
+
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return 0, 0, 0
+	}
+
+	return resp.Usage.PromptTokens, resp.Usage.CompletionTokens, resp.Usage.TotalTokens
 }
 
 // sanitizeResponseBody cleans the response body for logging.

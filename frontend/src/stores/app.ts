@@ -36,6 +36,9 @@ export interface RequestLog {
   model: string
   status_code: number
   duration_ms: number
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
   error?: string
   response_body?: string
 }
@@ -69,6 +72,7 @@ declare global {
           GetCLIConfigStatus(): Promise<Record<string, boolean>>
           GetProxyLogs(): Promise<RequestLog[]>
           ClearProxyLogs(): Promise<void>
+          GetProxyLogsSizeKB(): Promise<number>
           SettingsGet(): Promise<any>
           SettingsUpdatePort(port: number): Promise<void>
         }
@@ -83,6 +87,8 @@ export const useAppStore = defineStore('app', () => {
   const providers = ref<Provider[]>([])
   const proxyStatus = ref<ProxyStatus>({ running: false, port: 18900, addr: '' })
   const logs = ref<RequestLog[]>([])
+  const logsSizeKB = ref(0)
+  const totalTokens = ref(0)
   const loading = ref(false)
 
   async function fetchProxyStatus() {
@@ -133,6 +139,8 @@ export const useAppStore = defineStore('app', () => {
 
   async function fetchLogs() {
     logs.value = await api().GetProxyLogs()
+    logsSizeKB.value = await api().GetProxyLogsSizeKB()
+    totalTokens.value = logs.value.reduce((sum, log) => sum + (log.total_tokens || 0), 0)
   }
 
   async function clearLogs() {
@@ -154,6 +162,8 @@ export const useAppStore = defineStore('app', () => {
     providers,
     proxyStatus,
     logs,
+    logsSizeKB,
+    totalTokens,
     loading,
     fetchAll,
     fetchProxyStatus,

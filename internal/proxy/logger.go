@@ -12,17 +12,20 @@ const (
 )
 
 type RequestLog struct {
-	ID           string `json:"id"`
-	Time         int64  `json:"time"`
-	Method       string `json:"method"`
-	Path         string `json:"path"`
-	CLIType      string `json:"cli_type"`
-	Provider     string `json:"provider"`
-	Model        string `json:"model"`
-	StatusCode   int    `json:"status_code"`
-	Duration     int64  `json:"duration_ms"`
-	Error        string `json:"error,omitempty"`
-	ResponseBody string `json:"response_body,omitempty"`
+	ID               string `json:"id"`
+	Time             int64  `json:"time"`
+	Method           string `json:"method"`
+	Path             string `json:"path"`
+	CLIType          string `json:"cli_type"`
+	Provider         string `json:"provider"`
+	Model            string `json:"model"`
+	StatusCode       int    `json:"status_code"`
+	Duration         int64  `json:"duration_ms"`
+	PromptTokens     int    `json:"prompt_tokens"`
+	CompletionTokens int    `json:"completion_tokens"`
+	TotalTokens      int    `json:"total_tokens"`
+	Error            string `json:"error,omitempty"`
+	ResponseBody     string `json:"response_body,omitempty"`
 }
 
 type Logger struct {
@@ -59,8 +62,8 @@ func (l *Logger) Add(entry RequestLog) {
 	entry.Time = time.Now().UnixMilli()
 
 	_, err := l.db.Exec(
-		"INSERT INTO request_logs (id, time, method, path, cli_type, provider, model, status_code, duration_ms, error, response_body) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		entry.ID, entry.Time, entry.Method, entry.Path, entry.CLIType, entry.Provider, entry.Model, entry.StatusCode, entry.Duration, entry.Error, entry.ResponseBody,
+		"INSERT INTO request_logs (id, time, method, path, cli_type, provider, model, status_code, duration_ms, prompt_tokens, completion_tokens, total_tokens, error, response_body) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		entry.ID, entry.Time, entry.Method, entry.Path, entry.CLIType, entry.Provider, entry.Model, entry.StatusCode, entry.Duration, entry.PromptTokens, entry.CompletionTokens, entry.TotalTokens, entry.Error, entry.ResponseBody,
 	)
 	if err != nil {
 		// 日志写入失败不影响主流程
@@ -72,7 +75,7 @@ func (l *Logger) GetLogs() []RequestLog {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 
-	rows, err := l.db.Query("SELECT id, time, method, path, cli_type, provider, model, status_code, duration_ms, error, response_body FROM request_logs ORDER BY time DESC LIMIT 500")
+	rows, err := l.db.Query("SELECT id, time, method, path, cli_type, provider, model, status_code, duration_ms, prompt_tokens, completion_tokens, total_tokens, error, response_body FROM request_logs ORDER BY time DESC LIMIT 500")
 	if err != nil {
 		return nil
 	}
@@ -81,7 +84,7 @@ func (l *Logger) GetLogs() []RequestLog {
 	var logs []RequestLog
 	for rows.Next() {
 		var log RequestLog
-		err := rows.Scan(&log.ID, &log.Time, &log.Method, &log.Path, &log.CLIType, &log.Provider, &log.Model, &log.StatusCode, &log.Duration, &log.Error, &log.ResponseBody)
+		err := rows.Scan(&log.ID, &log.Time, &log.Method, &log.Path, &log.CLIType, &log.Provider, &log.Model, &log.StatusCode, &log.Duration, &log.PromptTokens, &log.CompletionTokens, &log.TotalTokens, &log.Error, &log.ResponseBody)
 		if err != nil {
 			continue
 		}
@@ -94,4 +97,14 @@ func (l *Logger) Clear() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.db.Exec("DELETE FROM request_logs")
+}
+
+func (l *Logger) GetSizeKB() int64 {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	var count int64
+	l.db.QueryRow("SELECT COUNT(*) FROM request_logs").Scan(&count)
+	// 估算每条日志约 500 字节
+	return (count * 500) / 1024
 }

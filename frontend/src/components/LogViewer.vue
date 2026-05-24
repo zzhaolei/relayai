@@ -63,7 +63,11 @@ onUnmounted(() => stopAutoRefresh())
 <template>
   <div style="height: 100%; display: flex; flex-direction: column">
     <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--app-border)">
-      <n-text strong style="font-size: 16px">请求日志</n-text>
+      <div style="display: flex; align-items: center; gap: 8px">
+        <n-text strong style="font-size: 16px">请求日志</n-text>
+        <n-text depth="3" style="font-size: 12px">({{ store.logsSizeKB }} KB)</n-text>
+        <n-text v-if="store.totalTokens > 0" depth="3" style="font-size: 12px">· {{ store.totalTokens }} tokens</n-text>
+      </div>
       <div style="display: flex; gap: 8px">
         <n-button size="tiny" :type="autoRefresh ? 'primary' : 'default'" @click="toggleAutoRefresh">
           {{ autoRefresh ? '自动刷新中' : '自动刷新' }}
@@ -73,7 +77,7 @@ onUnmounted(() => stopAutoRefresh())
           <template #trigger>
             <n-button size="tiny" type="error">清空</n-button>
           </template>
-          确定清空所有日志？
+          确定清空所有日志（{{ store.logsSizeKB }} KB）？
         </n-popconfirm>
       </div>
     </div>
@@ -101,6 +105,9 @@ onUnmounted(() => stopAutoRefresh())
               {{ log.path }}
             </n-text>
             <n-tag v-if="log.model" size="small" style="flex-shrink: 0">{{ log.model }}</n-tag>
+            <n-text v-if="log.total_tokens > 0" depth="3" style="font-size: 11px; font-family: monospace; flex-shrink: 0">
+              {{ log.prompt_tokens }}+{{ log.completion_tokens }}={{ log.total_tokens }}
+            </n-text>
             <n-text depth="3" style="font-size: 12px; font-family: monospace; flex-shrink: 0">
               {{ formatDuration(log.duration_ms) }}
             </n-text>

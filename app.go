@@ -160,6 +160,10 @@ func (a *App) ClearProxyLogs() {
 	a.proxy.ClearLogs()
 }
 
+func (a *App) GetProxyLogsSizeKB() int64 {
+	return a.proxy.GetLogsSizeKB()
+}
+
 // --- Settings ---
 
 func (a *App) SettingsGet() config.AppSettings {

@@ -10,6 +10,8 @@ export function GetCLIConfigStatus():Promise<Record<string, boolean>>;
 
 export function GetProxyLogs():Promise<Array<proxy.RequestLog>>;
 
+export function GetProxyLogsSizeKB():Promise<number>;
+
 export function ProviderCreate(arg1:string,arg2:string,arg3:string,arg4:string,arg5:Array<config.ModelMapping>,arg6:Array<string>):Promise<config.Provider>;
 
 export function ProviderDelete(arg1:string):Promise<void>;

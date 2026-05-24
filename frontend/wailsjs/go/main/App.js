@@ -14,6 +14,10 @@ export function GetProxyLogs() {
   return window['go']['main']['App']['GetProxyLogs']();
 }
 
+export function GetProxyLogsSizeKB() {
+  return window['go']['main']['App']['GetProxyLogsSizeKB']();
+}
+
 export function ProviderCreate(arg1, arg2, arg3, arg4, arg5, arg6) {
   return window['go']['main']['App']['ProviderCreate'](arg1, arg2, arg3, arg4, arg5, arg6);
 }

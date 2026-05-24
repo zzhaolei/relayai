@@ -103,3 +103,7 @@ func (s *Server) GetLogs() []RequestLog {
 func (s *Server) ClearLogs() {
 	s.logger.Clear()
 }
+
+func (s *Server) GetLogsSizeKB() int64 {
+	return s.logger.GetSizeKB()
+}
