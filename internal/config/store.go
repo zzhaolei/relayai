@@ -71,25 +71,12 @@ func (s *Store) SetPort(port int) error {
 }
 
 func (s *Store) getProviders() []Provider {
-	rows, err := s.db.Query("SELECT id, name, base_url, api_key, default_model, model_mappings, cli_types, enabled, created_at FROM providers ORDER BY created_at")
+	rows, err := s.db.Query("SELECT id, name, base_url, api_key, default_model, model_mappings, cli_types, enabled, created_at, prompt_tokens, completion_tokens, total_tokens, usage_updated_at FROM providers ORDER BY created_at")
 	if err != nil {
 		return nil
 	}
 	defer rows.Close()
-
-	var providers []Provider
-	for rows.Next() {
-		var p Provider
-		var modelMappingsJSON, cliTypesJSON string
-		err := rows.Scan(&p.ID, &p.Name, &p.BaseURL, &p.APIKey, &p.DefaultModel, &modelMappingsJSON, &cliTypesJSON, &p.Enabled, &p.CreatedAt)
-		if err != nil {
-			continue
-		}
-		json.Unmarshal([]byte(modelMappingsJSON), &p.ModelMappings)
-		json.Unmarshal([]byte(cliTypesJSON), &p.CLITypes)
-		providers = append(providers, p)
-	}
-	return providers
+	return scanProviders(rows)
 }
 
 func (s *Store) GetProviders() []Provider {
@@ -142,21 +129,49 @@ func (s *Store) SetProviderEnabled(id string, enabled bool) error {
 	return err
 }
 
+func (s *Store) ResetProviderUsage(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, err := s.db.Exec("UPDATE providers SET prompt_tokens = 0, completion_tokens = 0, total_tokens = 0, usage_updated_at = 0 WHERE id = ?", id); err != nil {
+		return err
+	}
+	_, err := s.db.Exec("DELETE FROM provider_usage_points WHERE provider_id = ?", id)
+	return err
+}
+
 func (s *Store) GetEnabledProviders() []Provider {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	rows, err := s.db.Query("SELECT id, name, base_url, api_key, default_model, model_mappings, cli_types, enabled, created_at FROM providers WHERE enabled = 1 ORDER BY created_at")
+	rows, err := s.db.Query("SELECT id, name, base_url, api_key, default_model, model_mappings, cli_types, enabled, created_at, prompt_tokens, completion_tokens, total_tokens, usage_updated_at FROM providers WHERE enabled = 1 ORDER BY created_at")
 	if err != nil {
 		return nil
 	}
 	defer rows.Close()
+	return scanProviders(rows)
+}
 
+func scanProviders(rows *sql.Rows) []Provider {
 	var providers []Provider
 	for rows.Next() {
 		var p Provider
 		var modelMappingsJSON, cliTypesJSON string
-		err := rows.Scan(&p.ID, &p.Name, &p.BaseURL, &p.APIKey, &p.DefaultModel, &modelMappingsJSON, &cliTypesJSON, &p.Enabled, &p.CreatedAt)
+		err := rows.Scan(
+			&p.ID,
+			&p.Name,
+			&p.BaseURL,
+			&p.APIKey,
+			&p.DefaultModel,
+			&modelMappingsJSON,
+			&cliTypesJSON,
+			&p.Enabled,
+			&p.CreatedAt,
+			&p.PromptTokens,
+			&p.CompletionTokens,
+			&p.TotalTokens,
+			&p.UsageUpdatedAt,
+		)
 		if err != nil {
 			continue
 		}

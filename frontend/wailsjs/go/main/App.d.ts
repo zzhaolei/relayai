@@ -8,6 +8,10 @@ export function ClearProxyLogs():Promise<void>;
 
 export function GetCLIConfigStatus():Promise<Record<string, boolean>>;
 
+export function GetProviderUsageSeries(arg1:string):Promise<Array<proxy.ProviderUsagePoint>>;
+
+export function GetProviderUsageStats():Promise<Array<proxy.ProviderUsageStats>>;
+
 export function GetProxyLogs():Promise<Array<proxy.RequestLog>>;
 
 export function GetProxyLogsSizeKB():Promise<number>;
@@ -17,6 +21,8 @@ export function ProviderCreate(arg1:string,arg2:string,arg3:string,arg4:string,a
 export function ProviderDelete(arg1:string):Promise<void>;
 
 export function ProviderList():Promise<Array<config.Provider>>;
+
+export function ProviderResetUsage(arg1:string):Promise<void>;
 
 export function ProviderSetEnabled(arg1:string,arg2:boolean):Promise<void>;
 

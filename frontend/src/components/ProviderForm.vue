@@ -30,7 +30,7 @@ const form = ref({
   base_url: '',
   api_key: '',
   default_model: '',
-  cli_types: [] as CLIType[],
+  cli_type: null as CLIType | null,
 })
 
 const mappings = ref<ModelMapping[]>([])
@@ -42,11 +42,11 @@ watch(() => props.visible, (val) => {
       base_url: props.provider.base_url,
       api_key: props.provider.api_key,
       default_model: props.provider.default_model || '',
-      cli_types: props.provider.cli_types || [],
+      cli_type: props.provider.cli_types?.[0] || null,
     }
     mappings.value = (props.provider.model_mappings || []).map(m => ({ ...m }))
   } else if (val) {
-    form.value = { name: '', base_url: '', api_key: '', default_model: '', cli_types: [] }
+    form.value = { name: '', base_url: '', api_key: '', default_model: '', cli_type: null }
     mappings.value = []
   }
 })
@@ -64,6 +64,10 @@ function handleSubmit() {
     message.warning('请输入名称')
     return
   }
+  if (!/^[A-Za-z0-9_-]+$/.test(form.value.name.trim())) {
+    message.warning('名称只支持英文、数字、下划线和 -')
+    return
+  }
   if (!form.value.base_url.trim()) {
     message.warning('请输入 API Base URL')
     return
@@ -76,8 +80,8 @@ function handleSubmit() {
     message.warning('请输入默认模型')
     return
   }
-  if (form.value.cli_types.length === 0) {
-    message.warning('请至少选择一个 CLI 平台')
+  if (!form.value.cli_type) {
+    message.warning('请选择一个 CLI 平台')
     return
   }
 
@@ -91,7 +95,7 @@ function handleSubmit() {
     api_key: form.value.api_key,
     default_model: form.value.default_model.trim(),
     model_mappings: validMappings,
-    cli_types: form.value.cli_types,
+    cli_types: [form.value.cli_type],
   })
   emit('update:visible', false)
 }
@@ -112,7 +116,8 @@ function handleCancel() {
   >
     <n-form label-placement="top">
       <n-form-item label="名称" required>
-        <n-input v-model:value="form.name" placeholder="例如：DeepSeek" />
+        <n-input v-model:value="form.name" placeholder="例如：DeepSeek_01" />
+        <template #feedback>仅支持英文、数字、下划线和 -</template>
       </n-form-item>
       <n-form-item label="API Base URL" required>
         <n-input v-model:value="form.base_url" placeholder="例如：https://api.deepseek.com" />
@@ -125,7 +130,7 @@ function handleCancel() {
 
       <n-form-item label="默认模型">
         <n-input v-model:value="form.default_model" placeholder="例如：gpt-4o" />
-        <template #feedback>设置后所有请求强制使用此模型，忽略客户端传入的模型名</template>
+        <template #feedback>未命中模型映射时使用默认模型</template>
       </n-form-item>
 
       <n-form-item label="模型映射">
@@ -138,22 +143,22 @@ function handleCancel() {
           </div>
           <n-button dashed size="small" @click="addMapping" block>+ 添加映射</n-button>
         </div>
-        <template #feedback>将客户端请求的模型名映射到实际使用的模型名</template>
+        <template #feedback>命中映射时优先使用映射模型</template>
       </n-form-item>
 
       <n-divider style="margin: 8px 0" />
 
       <n-form-item label="支持的 CLI 平台" required>
-        <n-checkbox-group v-model:value="form.cli_types">
+        <n-radio-group v-model:value="form.cli_type">
           <n-space>
-            <n-checkbox v-for="opt in cliOptions" :key="opt.value" :value="opt.value">
+            <n-radio-button v-for="opt in cliOptions" :key="opt.value" :value="opt.value">
               <div style="display: inline-flex; align-items: center; gap: 6px">
                 <CLIIcon :type="opt.value as CLIType" :size="14" />
                 <span>{{ opt.label }}</span>
               </div>
-            </n-checkbox>
+            </n-radio-button>
           </n-space>
-        </n-checkbox-group>
+        </n-radio-group>
         <template #feedback>选择该提供商支持的 CLI 平台，代理会根据请求类型路由到对应提供商</template>
       </n-form-item>
     </n-form>

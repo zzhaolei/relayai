@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useAppMessage } from '../composables/useMessage'
 import { useAppStore } from '../stores/app'
 import type { Provider, ModelMapping, CLIType } from '../stores/app'
 import ProxyStatusBar from '../components/ProxyStatusBar.vue'
 import ProviderCard from '../components/ProviderCard.vue'
+import ProviderDetailsModal from '../components/ProviderDetailsModal.vue'
 import ProviderForm from '../components/ProviderForm.vue'
 import { getErrorMessage } from '../utils'
 
@@ -12,9 +13,26 @@ const store = useAppStore()
 const message = useAppMessage()
 const formVisible = ref(false)
 const editingProvider = ref<Provider | null>(null)
+const detailsVisible = ref(false)
+const selectedProviderId = ref('')
+const usageRefreshing = ref(false)
+let usageRefreshTimer: number | undefined
+
+const selectedProvider = computed(() => {
+  return store.providers.find(p => p.id === selectedProviderId.value) || null
+})
 
 onMounted(() => {
   store.fetchAll()
+  usageRefreshTimer = window.setInterval(() => {
+    store.fetchProviders()
+  }, 60_000)
+})
+
+onUnmounted(() => {
+  if (usageRefreshTimer) {
+    window.clearInterval(usageRefreshTimer)
+  }
 })
 
 function openAddForm() {
@@ -24,7 +42,13 @@ function openAddForm() {
 
 function openEditForm(provider: Provider) {
   editingProvider.value = provider
+  detailsVisible.value = false
   formVisible.value = true
+}
+
+function openDetails(provider: Provider) {
+  selectedProviderId.value = provider.id
+  detailsVisible.value = true
 }
 
 async function handleFormSubmit(data: {
@@ -64,6 +88,27 @@ async function handleDelete(id: string) {
     message.error(getErrorMessage(e, '删除失败'))
   }
 }
+
+async function refreshUsageStats() {
+  usageRefreshing.value = true
+  try {
+    await store.fetchProviders()
+    message.success('用量已刷新')
+  } catch (e: any) {
+    message.error(getErrorMessage(e, '刷新失败'))
+  } finally {
+    usageRefreshing.value = false
+  }
+}
+
+async function handleResetUsage(id: string) {
+  try {
+    await store.resetProviderUsage(id)
+    message.success('用量已重置')
+  } catch (e: any) {
+    message.error(getErrorMessage(e, '重置失败'))
+  }
+}
 </script>
 
 <template>
@@ -78,7 +123,10 @@ async function handleDelete(id: string) {
           <n-text strong style="font-size: 18px; display: block; margin-bottom: 4px">模型提供商</n-text>
           <n-text depth="3" style="font-size: 13px">管理 AI 模型提供方，启用后参与反代路由</n-text>
         </div>
-        <n-button type="primary" @click="openAddForm">+ 添加提供商</n-button>
+        <div style="display: flex; gap: 8px">
+          <n-button :loading="usageRefreshing" @click="refreshUsageStats">刷新用量</n-button>
+          <n-button type="primary" @click="openAddForm">+ 添加提供商</n-button>
+        </div>
       </div>
 
       <n-spin :show="store.loading" style="width: 100%">
@@ -92,6 +140,7 @@ async function handleDelete(id: string) {
           v-for="p in store.providers"
           :key="p.id"
           :provider="p"
+          @view="openDetails"
           @edit="openEditForm"
           @delete="handleDelete"
         />
@@ -102,6 +151,12 @@ async function handleDelete(id: string) {
       v-model:visible="formVisible"
       :provider="editingProvider"
       @submit="handleFormSubmit"
+    />
+
+    <ProviderDetailsModal
+      v-model:visible="detailsVisible"
+      :provider="selectedProvider"
+      @reset-usage="handleResetUsage"
     />
   </div>
 </template>

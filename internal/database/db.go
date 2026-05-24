@@ -46,7 +46,10 @@ func (db *DB) init() error {
 	}
 
 	// 创建表
-	return db.createTables()
+	if err := db.createTables(); err != nil {
+		return err
+	}
+	return db.migrateTables()
 }
 
 func (db *DB) createTables() error {
@@ -64,7 +67,11 @@ func (db *DB) createTables() error {
 			model_mappings TEXT,
 			cli_types TEXT,
 			enabled INTEGER DEFAULT 1,
-			created_at INTEGER NOT NULL
+			created_at INTEGER NOT NULL,
+			prompt_tokens INTEGER DEFAULT 0,
+			completion_tokens INTEGER DEFAULT 0,
+			total_tokens INTEGER DEFAULT 0,
+			usage_updated_at INTEGER DEFAULT 0
 		)`,
 		`CREATE TABLE IF NOT EXISTS request_logs (
 			id TEXT PRIMARY KEY,
@@ -72,6 +79,7 @@ func (db *DB) createTables() error {
 			method TEXT,
 			path TEXT,
 			cli_type TEXT,
+			provider_id TEXT,
 			provider TEXT,
 			model TEXT,
 			status_code INTEGER,
@@ -82,7 +90,17 @@ func (db *DB) createTables() error {
 			error TEXT,
 			response_body TEXT
 		)`,
+		`CREATE TABLE IF NOT EXISTS provider_usage_points (
+			provider_id TEXT NOT NULL,
+			bucket_start INTEGER NOT NULL,
+			prompt_tokens INTEGER DEFAULT 0,
+			completion_tokens INTEGER DEFAULT 0,
+			total_tokens INTEGER DEFAULT 0,
+			PRIMARY KEY (provider_id, bucket_start)
+		)`,
 		`CREATE INDEX IF NOT EXISTS idx_request_logs_time ON request_logs(time)`,
+		`CREATE INDEX IF NOT EXISTS idx_request_logs_provider ON request_logs(provider)`,
+		`CREATE INDEX IF NOT EXISTS idx_provider_usage_points_provider_time ON provider_usage_points(provider_id, bucket_start)`,
 		`CREATE INDEX IF NOT EXISTS idx_providers_enabled ON providers(enabled)`,
 	}
 
@@ -93,6 +111,62 @@ func (db *DB) createTables() error {
 	}
 
 	return nil
+}
+
+func (db *DB) migrateTables() error {
+	columns := map[string]string{
+		"providers.prompt_tokens":     "ALTER TABLE providers ADD COLUMN prompt_tokens INTEGER DEFAULT 0",
+		"providers.completion_tokens": "ALTER TABLE providers ADD COLUMN completion_tokens INTEGER DEFAULT 0",
+		"providers.total_tokens":      "ALTER TABLE providers ADD COLUMN total_tokens INTEGER DEFAULT 0",
+		"providers.usage_updated_at":  "ALTER TABLE providers ADD COLUMN usage_updated_at INTEGER DEFAULT 0",
+		"request_logs.provider_id":    "ALTER TABLE request_logs ADD COLUMN provider_id TEXT",
+	}
+
+	for key, statement := range columns {
+		table, column := splitTableColumn(key)
+		exists, err := db.columnExists(table, column)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			if _, err := db.conn.Exec(statement); err != nil {
+				return fmt.Errorf("迁移字段失败 %s.%s: %w", table, column, err)
+			}
+		}
+	}
+	return nil
+}
+
+func splitTableColumn(key string) (string, string) {
+	for i, r := range key {
+		if r == '.' {
+			return key[:i], key[i+1:]
+		}
+	}
+	return key, ""
+}
+
+func (db *DB) columnExists(table, column string) (bool, error) {
+	rows, err := db.conn.Query("PRAGMA table_info(" + table + ")")
+	if err != nil {
+		return false, fmt.Errorf("查询表结构失败: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name, dataType string
+		var notNull int
+		var defaultValue any
+		var primaryKey int
+		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return false, err
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
 }
 
 func (db *DB) Conn() *sql.DB {

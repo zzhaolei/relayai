@@ -24,6 +24,10 @@ export namespace config {
 	    cli_types: string[];
 	    enabled: boolean;
 	    created_at: number;
+	    prompt_tokens: number;
+	    completion_tokens: number;
+	    total_tokens: number;
+	    usage_updated_at: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Provider(source);
@@ -40,6 +44,10 @@ export namespace config {
 	        this.cli_types = source["cli_types"];
 	        this.enabled = source["enabled"];
 	        this.created_at = source["created_at"];
+	        this.prompt_tokens = source["prompt_tokens"];
+	        this.completion_tokens = source["completion_tokens"];
+	        this.total_tokens = source["total_tokens"];
+	        this.usage_updated_at = source["usage_updated_at"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -119,12 +127,53 @@ export namespace main {
 
 export namespace proxy {
 	
+	export class ProviderUsagePoint {
+	    time: number;
+	    prompt_tokens: number;
+	    completion_tokens: number;
+	    total_tokens: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProviderUsagePoint(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.time = source["time"];
+	        this.prompt_tokens = source["prompt_tokens"];
+	        this.completion_tokens = source["completion_tokens"];
+	        this.total_tokens = source["total_tokens"];
+	    }
+	}
+	export class ProviderUsageStats {
+	    provider_id: string;
+	    provider: string;
+	    prompt_tokens: number;
+	    completion_tokens: number;
+	    total_tokens: number;
+	    updated_at: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProviderUsageStats(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.provider_id = source["provider_id"];
+	        this.provider = source["provider"];
+	        this.prompt_tokens = source["prompt_tokens"];
+	        this.completion_tokens = source["completion_tokens"];
+	        this.total_tokens = source["total_tokens"];
+	        this.updated_at = source["updated_at"];
+	    }
+	}
 	export class RequestLog {
 	    id: string;
 	    time: number;
 	    method: string;
 	    path: string;
 	    cli_type: string;
+	    provider_id?: string;
 	    provider: string;
 	    model: string;
 	    status_code: number;
@@ -146,6 +195,7 @@ export namespace proxy {
 	        this.method = source["method"];
 	        this.path = source["path"];
 	        this.cli_type = source["cli_type"];
+	        this.provider_id = source["provider_id"];
 	        this.provider = source["provider"];
 	        this.model = source["model"];
 	        this.status_code = source["status_code"];

@@ -4,12 +4,15 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"regexp"
 
 	"relay-ai/internal/cli"
 	"relay-ai/internal/config"
 	"relay-ai/internal/database"
 	"relay-ai/internal/proxy"
 )
+
+var providerNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 type App struct {
 	ctx   context.Context
@@ -86,6 +89,9 @@ func (a *App) ProviderList() []config.Provider {
 }
 
 func (a *App) ProviderCreate(name, baseURL, apiKey string, defaultModel string, modelMappings []config.ModelMapping, cliTypes []string) (config.Provider, error) {
+	if !providerNamePattern.MatchString(name) {
+		return config.Provider{}, fmt.Errorf("provider name only supports English letters, numbers, underscores, and hyphens")
+	}
 	p := config.NewProvider(name, baseURL, apiKey)
 	p.DefaultModel = defaultModel
 	p.ModelMappings = modelMappings
@@ -97,6 +103,9 @@ func (a *App) ProviderCreate(name, baseURL, apiKey string, defaultModel string, 
 }
 
 func (a *App) ProviderUpdate(id, name, baseURL, apiKey string, defaultModel string, modelMappings []config.ModelMapping, cliTypes []string) error {
+	if !providerNamePattern.MatchString(name) {
+		return fmt.Errorf("provider name only supports English letters, numbers, underscores, and hyphens")
+	}
 	p := config.Provider{
 		Name:          name,
 		BaseURL:       baseURL,
@@ -114,6 +123,10 @@ func (a *App) ProviderDelete(id string) error {
 
 func (a *App) ProviderSetEnabled(id string, enabled bool) error {
 	return a.store.SetProviderEnabled(id, enabled)
+}
+
+func (a *App) ProviderResetUsage(id string) error {
+	return a.store.ResetProviderUsage(id)
 }
 
 // --- CLI Config Writing ---
@@ -154,6 +167,14 @@ func (a *App) GetCLIConfigStatus() map[string]bool {
 
 func (a *App) GetProxyLogs() []proxy.RequestLog {
 	return a.proxy.GetLogs()
+}
+
+func (a *App) GetProviderUsageStats() []proxy.ProviderUsageStats {
+	return a.proxy.GetProviderUsageStats()
+}
+
+func (a *App) GetProviderUsageSeries(providerID string) []proxy.ProviderUsagePoint {
+	return a.proxy.GetProviderUsageSeries(providerID)
 }
 
 func (a *App) ClearProxyLogs() {

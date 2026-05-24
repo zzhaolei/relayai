@@ -73,7 +73,7 @@ onUnmounted(() => stopAutoRefresh())
           {{ autoRefresh ? '自动刷新中' : '自动刷新' }}
         </n-button>
         <n-button size="tiny" @click="store.fetchLogs">刷新</n-button>
-        <n-popconfirm @positive-click="store.clearLogs">
+        <n-popconfirm positive-text="确认" negative-text="取消" @positive-click="store.clearLogs">
           <template #trigger>
             <n-button size="tiny" type="error">清空</n-button>
           </template>

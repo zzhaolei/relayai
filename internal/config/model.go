@@ -8,15 +8,19 @@ type ModelMapping struct {
 }
 
 type Provider struct {
-	ID            string         `json:"id"`
-	Name          string         `json:"name"`
-	BaseURL       string         `json:"base_url"`
-	APIKey        string         `json:"api_key"`
-	DefaultModel  string         `json:"default_model"`
-	ModelMappings []ModelMapping `json:"model_mappings"`
-	CLITypes      []string       `json:"cli_types"`
-	Enabled       bool           `json:"enabled"`
-	CreatedAt     int64          `json:"created_at"`
+	ID               string         `json:"id"`
+	Name             string         `json:"name"`
+	BaseURL          string         `json:"base_url"`
+	APIKey           string         `json:"api_key"`
+	DefaultModel     string         `json:"default_model"`
+	ModelMappings    []ModelMapping `json:"model_mappings"`
+	CLITypes         []string       `json:"cli_types"`
+	Enabled          bool           `json:"enabled"`
+	CreatedAt        int64          `json:"created_at"`
+	PromptTokens     int64          `json:"prompt_tokens"`
+	CompletionTokens int64          `json:"completion_tokens"`
+	TotalTokens      int64          `json:"total_tokens"`
+	UsageUpdatedAt   int64          `json:"usage_updated_at"`
 }
 
 type AppSettings struct {

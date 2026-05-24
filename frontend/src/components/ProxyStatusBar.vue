@@ -109,7 +109,8 @@ async function copyConfig() {
       </div>
       <div style="display: flex; align-items: center; gap: 8px">
         <n-button
-          text
+          secondary
+          type="warning"
           size="tiny"
           :disabled="!store.proxyStatus.running || isRestarting"
           :loading="isRestarting"

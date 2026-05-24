@@ -10,6 +10,14 @@ export function GetCLIConfigStatus() {
   return window['go']['main']['App']['GetCLIConfigStatus']();
 }
 
+export function GetProviderUsageSeries(arg1) {
+  return window['go']['main']['App']['GetProviderUsageSeries'](arg1);
+}
+
+export function GetProviderUsageStats() {
+  return window['go']['main']['App']['GetProviderUsageStats']();
+}
+
 export function GetProxyLogs() {
   return window['go']['main']['App']['GetProxyLogs']();
 }
@@ -28,6 +36,10 @@ export function ProviderDelete(arg1) {
 
 export function ProviderList() {
   return window['go']['main']['App']['ProviderList']();
+}
+
+export function ProviderResetUsage(arg1) {
+  return window['go']['main']['App']['ProviderResetUsage'](arg1);
 }
 
 export function ProviderSetEnabled(arg1, arg2) {

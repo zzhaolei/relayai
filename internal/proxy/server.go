@@ -100,6 +100,14 @@ func (s *Server) GetLogs() []RequestLog {
 	return s.logger.GetLogs()
 }
 
+func (s *Server) GetProviderUsageStats() []ProviderUsageStats {
+	return s.logger.GetProviderUsageStats()
+}
+
+func (s *Server) GetProviderUsageSeries(providerID string) []ProviderUsagePoint {
+	return s.logger.GetProviderUsageSeries(providerID)
+}
+
 func (s *Server) ClearLogs() {
 	s.logger.Clear()
 }

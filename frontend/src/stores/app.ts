@@ -18,7 +18,13 @@ export interface Provider {
   cli_types: CLIType[]
   enabled: boolean
   created_at: number
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+  usage_updated_at: number
 }
+
+type ProviderPayload = Omit<Provider, 'id' | 'created_at' | 'enabled' | 'prompt_tokens' | 'completion_tokens' | 'total_tokens' | 'usage_updated_at'>
 
 export interface ProxyStatus {
   running: boolean
@@ -41,6 +47,22 @@ export interface RequestLog {
   total_tokens: number
   error?: string
   response_body?: string
+}
+
+export interface ProviderUsageStats {
+  provider_id: string
+  provider: string
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+  updated_at: number
+}
+
+export interface ProviderUsagePoint {
+  time: number
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
 }
 
 export interface CLITypeMeta {
@@ -68,9 +90,12 @@ declare global {
           ProviderUpdate(id: string, name: string, base_url: string, api_key: string, defaultModel: string, modelMappings: ModelMapping[], cliTypes: string[]): Promise<void>
           ProviderDelete(id: string): Promise<void>
           ProviderSetEnabled(id: string, enabled: boolean): Promise<void>
+          ProviderResetUsage(id: string): Promise<void>
           WriteCLIConfig(cliType: string): Promise<void>
           GetCLIConfigStatus(): Promise<Record<string, boolean>>
           GetProxyLogs(): Promise<RequestLog[]>
+          GetProviderUsageStats(): Promise<ProviderUsageStats[]>
+          GetProviderUsageSeries(providerID: string): Promise<ProviderUsagePoint[]>
           ClearProxyLogs(): Promise<void>
           GetProxyLogsSizeKB(): Promise<number>
           SettingsGet(): Promise<any>
@@ -87,6 +112,7 @@ export const useAppStore = defineStore('app', () => {
   const providers = ref<Provider[]>([])
   const proxyStatus = ref<ProxyStatus>({ running: false, port: 18900, addr: '' })
   const logs = ref<RequestLog[]>([])
+  const providerUsageStats = ref<ProviderUsageStats[]>([])
   const logsSizeKB = ref(0)
   const totalTokens = ref(0)
   const loading = ref(false)
@@ -99,21 +125,37 @@ export const useAppStore = defineStore('app', () => {
     providers.value = await api().ProviderList()
   }
 
+  async function fetchProviderUsageStats() {
+    await fetchProviders()
+    providerUsageStats.value = providers.value.map(provider => ({
+      provider_id: provider.id,
+      provider: provider.name,
+      prompt_tokens: provider.prompt_tokens || 0,
+      completion_tokens: provider.completion_tokens || 0,
+      total_tokens: provider.total_tokens || 0,
+      updated_at: provider.usage_updated_at || 0,
+    }))
+  }
+
+  async function fetchProviderUsageSeries(providerID: string) {
+    return await api().GetProviderUsageSeries(providerID)
+  }
+
   async function fetchAll() {
     loading.value = true
     try {
-      await Promise.all([fetchProxyStatus(), fetchProviders()])
+      await Promise.all([fetchProxyStatus(), fetchProviderUsageStats()])
     } finally {
       loading.value = false
     }
   }
 
-  async function createProvider(p: Omit<Provider, 'id' | 'created_at' | 'enabled'>) {
+  async function createProvider(p: ProviderPayload) {
     await api().ProviderCreate(p.name, p.base_url, p.api_key, p.default_model, p.model_mappings || [], p.cli_types || [])
     await fetchProviders()
   }
 
-  async function updateProvider(id: string, p: Omit<Provider, 'id' | 'created_at' | 'enabled'>) {
+  async function updateProvider(id: string, p: ProviderPayload) {
     await api().ProviderUpdate(id, p.name, p.base_url, p.api_key, p.default_model, p.model_mappings || [], p.cli_types || [])
     await fetchProviders()
   }
@@ -125,6 +167,11 @@ export const useAppStore = defineStore('app', () => {
 
   async function toggleProviderEnabled(id: string, enabled: boolean) {
     await api().ProviderSetEnabled(id, enabled)
+    await fetchProviders()
+  }
+
+  async function resetProviderUsage(id: string) {
+    await api().ProviderResetUsage(id)
     await fetchProviders()
   }
 
@@ -146,6 +193,8 @@ export const useAppStore = defineStore('app', () => {
   async function clearLogs() {
     await api().ClearProxyLogs()
     logs.value = []
+    logsSizeKB.value = 0
+    totalTokens.value = 0
   }
 
   async function startProxy() {
@@ -162,6 +211,7 @@ export const useAppStore = defineStore('app', () => {
     providers,
     proxyStatus,
     logs,
+    providerUsageStats,
     logsSizeKB,
     totalTokens,
     loading,
@@ -172,11 +222,14 @@ export const useAppStore = defineStore('app', () => {
     updateProvider,
     deleteProvider,
     toggleProviderEnabled,
+    resetProviderUsage,
     writeCLIConfig,
     restartProxy,
     startProxy,
     stopProxy,
     fetchLogs,
+    fetchProviderUsageStats,
+    fetchProviderUsageSeries,
     clearLogs,
   }
 })

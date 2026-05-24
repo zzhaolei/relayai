@@ -114,6 +114,7 @@ func makeHandler(store *config.Store, logger *Logger, cliType, prefix string) ht
 					Method:           r.Method,
 					Path:             r.URL.Path,
 					CLIType:          cliType,
+					ProviderID:       provider.ID,
 					Provider:         provider.Name,
 					Model:            originalModel,
 					StatusCode:       result.StatusCode,
@@ -143,9 +144,6 @@ func makeHandler(store *config.Store, logger *Logger, cliType, prefix string) ht
 	}
 }
 
-// transformBody applies model name transformation to the request body.
-// If DefaultModel is set, all model fields are replaced with it.
-// Otherwise, ModelMappings are checked for a matching From value.
 func transformBody(body []byte, provider *config.Provider) []byte {
 	if len(body) == 0 {
 		return body
@@ -166,15 +164,14 @@ func transformBody(body []byte, provider *config.Provider) []byte {
 	}
 
 	newModel := ""
-	if provider.DefaultModel != "" {
-		newModel = provider.DefaultModel
-	} else {
-		for _, mapping := range provider.ModelMappings {
-			if mapping.From == currentModel {
-				newModel = mapping.To
-				break
-			}
+	for _, mapping := range provider.ModelMappings {
+		if mapping.From == currentModel {
+			newModel = mapping.To
+			break
 		}
+	}
+	if newModel == "" && provider.DefaultModel != "" {
+		newModel = provider.DefaultModel
 	}
 
 	if newModel == "" || newModel == currentModel {
