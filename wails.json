@@ -1,7 +1,7 @@
 {
   "$schema": "https://wails.io/schemas/config.v2.json",
-  "name": "relayai",
-  "outputfilename": "relayai",
+  "name": "RelayAI",
+  "outputfilename": "RelayAI",
   "frontend:install": "npm install",
   "frontend:build": "npm run build",
   "frontend:dev:watcher": "npm run dev",
@@ -9,5 +9,8 @@
   "author": {
     "name": "zhaolei",
     "email": "im.zhaolei@foxmail.com"
+  },
+  "info": {
+    "icon": "build/appicon.png"
   }
 }

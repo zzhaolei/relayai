@@ -2,10 +2,11 @@
 import { ref, onMounted } from 'vue'
 import { useAppMessage } from '../composables/useMessage'
 import { useAppStore } from '../stores/app'
-import type { Provider, ModelMapping } from '../stores/app'
+import type { Provider, ModelMapping, CLIType } from '../stores/app'
 import ProxyStatusBar from '../components/ProxyStatusBar.vue'
 import ProviderCard from '../components/ProviderCard.vue'
 import ProviderForm from '../components/ProviderForm.vue'
+import { getErrorMessage } from '../utils'
 
 const store = useAppStore()
 const message = useAppMessage()
@@ -32,7 +33,7 @@ async function handleFormSubmit(data: {
   api_key: string
   default_model: string
   model_mappings: ModelMapping[]
-  cli_types: string[]
+  cli_types: CLIType[]
 }) {
   try {
     const payload = {
@@ -51,7 +52,7 @@ async function handleFormSubmit(data: {
       message.success('添加成功')
     }
   } catch (e: any) {
-    message.error(e?.message || '操作失败')
+    message.error(getErrorMessage(e, '操作失败'))
   }
 }
 
@@ -60,7 +61,7 @@ async function handleDelete(id: string) {
     await store.deleteProvider(id)
     message.success('已删除')
   } catch (e: any) {
-    message.error(e?.message || '删除失败')
+    message.error(getErrorMessage(e, '删除失败'))
   }
 }
 </script>

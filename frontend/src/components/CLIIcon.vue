@@ -1,6 +1,8 @@
 <script setup lang="ts">
+import type { CLIType } from '../stores/app'
+
 defineProps<{
-  type: 'claude' | 'codex'
+  type: CLIType
   size?: number
 }>()
 

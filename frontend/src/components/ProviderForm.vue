@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useAppMessage } from '../composables/useMessage'
-import type { Provider, ModelMapping } from '../stores/app'
+import type { Provider, ModelMapping, CLIType } from '../stores/app'
 import { CLI_TYPES } from '../stores/app'
 import CLIIcon from './CLIIcon.vue'
 
@@ -18,7 +18,7 @@ const emit = defineEmits<{
     api_key: string
     default_model: string
     model_mappings: ModelMapping[]
-    cli_types: string[]
+    cli_types: CLIType[]
   }): void
 }>()
 
@@ -30,7 +30,7 @@ const form = ref({
   base_url: '',
   api_key: '',
   default_model: '',
-  cli_types: [] as string[],
+  cli_types: [] as CLIType[],
 })
 
 const mappings = ref<ModelMapping[]>([])
@@ -121,7 +121,7 @@ function handleCancel() {
         <n-input v-model:value="form.api_key" type="password" show-password-on="click" placeholder="sk-..." />
       </n-form-item>
 
-      <n-divider />
+      <n-divider style="margin: 8px 0" />
 
       <n-form-item label="默认模型">
         <n-input v-model:value="form.default_model" placeholder="例如：gpt-4o" />
@@ -141,14 +141,14 @@ function handleCancel() {
         <template #feedback>将客户端请求的模型名映射到实际使用的模型名</template>
       </n-form-item>
 
-      <n-divider />
+      <n-divider style="margin: 8px 0" />
 
       <n-form-item label="支持的 CLI 平台" required>
         <n-checkbox-group v-model:value="form.cli_types">
           <n-space>
             <n-checkbox v-for="opt in cliOptions" :key="opt.value" :value="opt.value">
               <div style="display: inline-flex; align-items: center; gap: 6px">
-                <CLIIcon :type="opt.value as 'claude' | 'codex'" :size="14" />
+                <CLIIcon :type="opt.value as CLIType" :size="14" />
                 <span>{{ opt.label }}</span>
               </div>
             </n-checkbox>

@@ -7,6 +7,7 @@ import (
 
 	"relay-ai/internal/cli"
 	"relay-ai/internal/config"
+	"relay-ai/internal/database"
 	"relay-ai/internal/proxy"
 )
 
@@ -14,6 +15,7 @@ type App struct {
 	ctx   context.Context
 	store *config.Store
 	proxy *proxy.Server
+	db    *database.DB
 }
 
 type ProxyStatus struct {
@@ -23,13 +25,20 @@ type ProxyStatus struct {
 }
 
 func NewApp() *App {
-	store, err := config.NewStore()
+	db, err := database.New()
+	if err != nil {
+		log.Fatalf("failed to init database: %v", err)
+	}
+
+	store, err := config.NewStore(db.Conn())
 	if err != nil {
 		log.Fatalf("failed to init config store: %v", err)
 	}
+
 	return &App{
 		store: store,
-		proxy: proxy.New(store),
+		proxy: proxy.New(store, db.Conn()),
+		db:    db,
 	}
 }
 
@@ -42,6 +51,9 @@ func (a *App) startup(ctx context.Context) {
 
 func (a *App) shutdown(ctx context.Context) {
 	a.proxy.Stop()
+	if a.db != nil {
+		a.db.Close()
+	}
 }
 
 // --- Proxy lifecycle ---

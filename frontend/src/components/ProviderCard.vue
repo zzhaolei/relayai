@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useAppMessage } from '../composables/useMessage'
-import type { Provider } from '../stores/app'
+import type { Provider, CLIType } from '../stores/app'
 import { useAppStore, CLI_TYPES } from '../stores/app'
 import CLIIcon from './CLIIcon.vue'
+import { maskKey, getErrorMessage } from '../utils'
 
 const props = defineProps<{
   provider: Provider
@@ -24,18 +25,13 @@ async function handleToggleEnabled(val: boolean) {
     await store.toggleProviderEnabled(props.provider.id, val)
     message.success(val ? '已启用' : '已禁用')
   } catch (e: any) {
-    message.error(e?.message || '操作失败')
+    message.error(getErrorMessage(e, '操作失败'))
   } finally {
     toggling.value = false
   }
 }
 
-const maskedKey = computed(() => {
-  const key = props.provider.api_key
-  if (!key) return '未设置'
-  if (key.length <= 8) return '****'
-  return key.slice(0, 4) + '****' + key.slice(-4)
-})
+const maskedKey = computed(() => maskKey(props.provider.api_key))
 
 const cliTypes = computed(() => {
   const types = props.provider.cli_types
@@ -95,7 +91,7 @@ const cliLabels: Record<string, string> = Object.fromEntries(
         <n-text depth="3" style="width: 32px; font-size: 12px; flex-shrink: 0">CLI</n-text>
         <div style="display: flex; gap: 10px">
           <div v-for="t in cliTypes" :key="t" style="display: flex; align-items: center; gap: 4px">
-            <CLIIcon :type="t as 'claude' | 'codex'" :size="14" />
+            <CLIIcon :type="t as CLIType" :size="14" />
             <n-text style="font-size: 12px">{{ cliLabels[t] || t }}</n-text>
           </div>
         </div>

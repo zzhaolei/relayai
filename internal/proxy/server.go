@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
@@ -24,11 +25,11 @@ type Server struct {
 	logger     *Logger
 }
 
-func New(store *config.Store) *Server {
+func New(store *config.Store, db *sql.DB) *Server {
 	return &Server{
 		store:  store,
 		port:   store.GetPort(),
-		logger: NewLogger(),
+		logger: NewLogger(db),
 	}
 }
 

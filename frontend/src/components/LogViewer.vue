@@ -2,7 +2,9 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useAppMessage } from '../composables/useMessage'
 import { useAppStore } from '../stores/app'
+import type { CLIType } from '../stores/app'
 import CLIIcon from './CLIIcon.vue'
+import { copyToClipboard, formatDuration } from '../utils'
 
 const store = useAppStore()
 const message = useAppMessage()
@@ -20,16 +22,11 @@ const formatTime = (ms: number) => {
   return d.toLocaleTimeString('zh-CN', { hour12: false })
 }
 
-const formatDuration = (ms: number) => {
-  if (ms < 1000) return `${ms}ms`
-  return `${(ms / 1000).toFixed(1)}s`
-}
-
 async function copyText(text: string) {
-  try {
-    await navigator.clipboard.writeText(text)
+  const success = await copyToClipboard(text)
+  if (success) {
     message.success('已复制')
-  } catch {
+  } else {
     message.error('复制失败')
   }
 }
@@ -107,17 +104,14 @@ onUnmounted(() => stopAutoRefresh())
             <n-text depth="3" style="font-size: 12px; font-family: monospace; flex-shrink: 0">
               {{ formatDuration(log.duration_ms) }}
             </n-text>
-            <CLIIcon v-if="log.cli_type" :type="log.cli_type as 'claude' | 'codex'" :size="12" />
+            <CLIIcon v-if="log.cli_type" :type="log.cli_type as CLIType" :size="12" />
             <n-text v-if="log.provider" depth="3" style="font-size: 12px; flex-shrink: 0">
               {{ log.provider }}
             </n-text>
           </div>
 
           <n-card v-if="log.error" size="small" :bordered="false" style="background: var(--app-fill-1)">
-            <div style="display: flex; align-items: center; gap: 8px">
-              <n-text type="error" code style="flex: 1; font-size: 12px; word-break: break-all">{{ log.error }}</n-text>
-              <n-button text size="tiny" @click="copyText(log.error!)">复制错误</n-button>
-            </div>
+            <n-text type="error" code style="font-size: 12px; word-break: break-all">{{ log.error }}</n-text>
           </n-card>
 
           <n-card v-if="log.response_body" size="small" :bordered="false" style="background: var(--app-fill-1)">

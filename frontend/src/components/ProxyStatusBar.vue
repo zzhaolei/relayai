@@ -2,8 +2,9 @@
 import { computed, ref } from 'vue'
 import { useAppMessage } from '../composables/useMessage'
 import { useAppStore, CLI_TYPES } from '../stores/app'
-import type { CLITypeMeta } from '../stores/app'
+import type { CLITypeMeta, CLIType } from '../stores/app'
 import CLIIcon from './CLIIcon.vue'
+import { maskKey, copyToClipboard, getErrorMessage } from '../utils'
 
 const store = useAppStore()
 const message = useAppMessage()
@@ -48,12 +49,7 @@ const apiKey = computed(() => {
   return providers[0].api_key || ''
 })
 
-const maskedKey = computed(() => {
-  const key = apiKey.value
-  if (!key) return '未配置'
-  if (key.length <= 8) return '****'
-  return key.slice(0, 4) + '****' + key.slice(-4)
-})
+const maskedKey = computed(() => maskKey(apiKey.value))
 
 async function handleToggle() {
   if (store.proxyStatus.running) {
@@ -72,11 +68,11 @@ async function handleRestart() {
   }
 }
 
-async function copyToClipboard(text: string) {
-  try {
-    await navigator.clipboard.writeText(text)
+async function handleCopyToClipboard(text: string) {
+  const success = await copyToClipboard(text)
+  if (success) {
     message.success('已复制')
-  } catch {
+  } else {
     message.error('复制失败')
   }
 }
@@ -86,7 +82,7 @@ async function handleWriteCLI(cliType: string) {
     await store.writeCLIConfig(cliType)
     message.success(`${cliType} 配置已写入`)
   } catch (e: any) {
-    message.error(e?.message || '写入失败')
+    message.error(getErrorMessage(e, '写入失败'))
   }
 }
 
@@ -99,7 +95,7 @@ function showConfig(ep: CLITypeMeta & { url: string }) {
 async function copyConfig() {
   if (!selectedEndpoint.value) return
   const text = `Base URL: ${selectedEndpoint.value.url}\nAPI Key: ${apiKey.value}`
-  await copyToClipboard(text)
+  await handleCopyToClipboard(text)
 }
 </script>
 
@@ -140,7 +136,7 @@ async function copyConfig() {
       >
         <div style="display: flex; flex-direction: column; gap: 6px">
           <div style="display: flex; align-items: center; gap: 6px">
-            <CLIIcon :type="ep.key as 'claude' | 'codex'" :size="14" />
+            <CLIIcon :type="ep.key as CLIType" :size="14" />
             <span style="font-weight: 500">{{ ep.label }}</span>
           </div>
           <div style="display: flex; justify-content: flex-end; gap: 4px">
@@ -170,7 +166,7 @@ async function copyConfig() {
           <n-card size="small" style="margin-top: 4px">
             <div style="display: flex; align-items: center; gap: 8px">
               <n-text code style="flex: 1; word-break: break-all">{{ selectedEndpoint.url }}</n-text>
-              <n-button text size="tiny" @click="copyToClipboard(selectedEndpoint!.url)">复制</n-button>
+              <n-button text size="tiny" @click="handleCopyToClipboard(selectedEndpoint!.url)">复制</n-button>
             </div>
           </n-card>
         </div>
@@ -182,7 +178,7 @@ async function copyConfig() {
               <n-button v-if="apiKey" text size="tiny" @click="showFullKey = !showFullKey">
                 {{ showFullKey ? '隐藏' : '查看' }}
               </n-button>
-              <n-button text size="tiny" :disabled="!apiKey" @click="copyToClipboard(apiKey)">复制</n-button>
+              <n-button text size="tiny" :disabled="!apiKey" @click="handleCopyToClipboard(apiKey)">复制</n-button>
             </div>
           </n-card>
         </div>

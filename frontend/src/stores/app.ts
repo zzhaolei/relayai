@@ -6,6 +6,8 @@ export interface ModelMapping {
   to: string
 }
 
+export type CLIType = 'claude' | 'codex'
+
 export interface Provider {
   id: string
   name: string
@@ -13,7 +15,7 @@ export interface Provider {
   api_key: string
   default_model: string
   model_mappings: ModelMapping[]
-  cli_types: string[]
+  cli_types: CLIType[]
   enabled: boolean
   created_at: number
 }
@@ -29,7 +31,7 @@ export interface RequestLog {
   time: number
   method: string
   path: string
-  cli_type: string
+  cli_type: CLIType
   provider: string
   model: string
   status_code: number
@@ -39,7 +41,7 @@ export interface RequestLog {
 }
 
 export interface CLITypeMeta {
-  key: string
+  key: CLIType
   label: string
   path: string
 }

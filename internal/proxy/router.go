@@ -246,7 +246,7 @@ func tryProvider(w http.ResponseWriter, r *http.Request, upstreamURL string, bod
 		return tryProviderResult{
 			StatusCode:   resp.StatusCode,
 			Error:        fmt.Sprintf("upstream returned %d", resp.StatusCode),
-			ResponseBody: string(respBody),
+			ResponseBody: sanitizeResponseBody(respBody),
 		}
 	}
 
@@ -261,7 +261,7 @@ func tryProvider(w http.ResponseWriter, r *http.Request, upstreamURL string, bod
 	var respBodyStr string
 	if resp.StatusCode >= 400 {
 		errStr = fmt.Sprintf("upstream returned %d", resp.StatusCode)
-		respBodyStr = string(respBody)
+		respBodyStr = sanitizeResponseBody(respBody)
 	}
 	return tryProviderResult{StatusCode: resp.StatusCode, Error: errStr, ResponseBody: respBodyStr}
 }
@@ -285,4 +285,25 @@ func contains(slice []string, item string) bool {
 		}
 	}
 	return false
+}
+
+// sanitizeResponseBody cleans the response body for logging.
+// It removes control characters (except newline and tab) and limits length.
+func sanitizeResponseBody(body []byte) string {
+	const maxLen = 4096
+
+	s := string(body)
+	// Remove control characters except \n, \r, \t
+	var cleaned strings.Builder
+	for _, r := range s {
+		if r == '\n' || r == '\r' || r == '\t' || r >= 32 {
+			cleaned.WriteRune(r)
+		}
+	}
+
+	result := cleaned.String()
+	if len(result) > maxLen {
+		result = result[:maxLen] + "...(truncated)"
+	}
+	return result
 }
