@@ -1,24 +1,27 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"regexp"
+	"unsafe"
 
 	"relay-ai/internal/cli"
 	"relay-ai/internal/config"
 	"relay-ai/internal/database"
+	"relay-ai/internal/native"
 	"relay-ai/internal/proxy"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 var providerNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 type App struct {
-	ctx   context.Context
 	store *config.Store
 	proxy *proxy.Server
 	db    *database.DB
+	win   application.Window
 }
 
 type ProxyStatus struct {
@@ -45,18 +48,12 @@ func NewApp() *App {
 	}
 }
 
-func (a *App) startup(ctx context.Context) {
-	a.ctx = ctx
-	if err := a.proxy.Start(); err != nil {
-		log.Printf("failed to start proxy: %v", err)
-	}
+func (a *App) setWindow(win application.Window) {
+	a.win = win
 }
 
-func (a *App) shutdown(ctx context.Context) {
-	a.proxy.Stop()
-	if a.db != nil {
-		a.db.Close()
-	}
+func (a *App) initProxy() error {
+	return a.proxy.Start()
 }
 
 // --- Proxy lifecycle ---
@@ -131,7 +128,6 @@ func (a *App) ProviderResetUsage(id string) error {
 
 // --- CLI Config Writing ---
 
-// WriteCLIConfig writes the proxy URL and key into the specified CLI's config file.
 func (a *App) WriteCLIConfig(cliType string) error {
 	enabled := a.store.GetEnabledProviders()
 	if len(enabled) == 0 {
@@ -140,8 +136,6 @@ func (a *App) WriteCLIConfig(cliType string) error {
 
 	proxyAddr := fmt.Sprintf("127.0.0.1:%d", a.store.GetPort())
 	proxyBaseURL := fmt.Sprintf("http://%s", proxyAddr)
-
-	// Use the first enabled provider's API key for the CLI config
 	apiKey := enabled[0].APIKey
 
 	switch cliType {
@@ -154,7 +148,6 @@ func (a *App) WriteCLIConfig(cliType string) error {
 	}
 }
 
-// GetCLIConfigStatus checks which CLIs are currently pointing to our proxy.
 func (a *App) GetCLIConfigStatus() map[string]bool {
 	proxyAddr := fmt.Sprintf("127.0.0.1:%d", a.store.GetPort())
 	return map[string]bool{
@@ -193,4 +186,14 @@ func (a *App) SettingsGet() config.AppSettings {
 
 func (a *App) SettingsUpdatePort(port int) error {
 	return a.store.SetPort(port)
+}
+
+// --- Appearance ---
+
+func (a *App) SetAppearanceMode(mode string) {
+	var hwnd unsafe.Pointer
+	if a.win != nil {
+		hwnd = a.win.NativeWindow()
+	}
+	native.SetWindowAppearance(hwnd, mode)
 }

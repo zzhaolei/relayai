@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import * as App from '../../bindings/relay-ai/app'
 
 export interface ModelMapping {
   from: string
@@ -76,38 +77,6 @@ export const CLI_TYPES: CLITypeMeta[] = [
   { key: 'codex', label: 'Codex', path: '/openai' },
 ]
 
-declare global {
-  interface Window {
-    go: {
-      main: {
-        App: {
-          ProxyStart(): Promise<void>
-          ProxyStop(): Promise<void>
-          ProxyRestart(): Promise<void>
-          ProxyStatus(): Promise<ProxyStatus>
-          ProviderList(): Promise<Provider[]>
-          ProviderCreate(name: string, base_url: string, api_key: string, defaultModel: string, modelMappings: ModelMapping[], cliTypes: string[]): Promise<Provider>
-          ProviderUpdate(id: string, name: string, base_url: string, api_key: string, defaultModel: string, modelMappings: ModelMapping[], cliTypes: string[]): Promise<void>
-          ProviderDelete(id: string): Promise<void>
-          ProviderSetEnabled(id: string, enabled: boolean): Promise<void>
-          ProviderResetUsage(id: string): Promise<void>
-          WriteCLIConfig(cliType: string): Promise<void>
-          GetCLIConfigStatus(): Promise<Record<string, boolean>>
-          GetProxyLogs(): Promise<RequestLog[]>
-          GetProviderUsageStats(): Promise<ProviderUsageStats[]>
-          GetProviderUsageSeries(providerID: string): Promise<ProviderUsagePoint[]>
-          ClearProxyLogs(): Promise<void>
-          GetProxyLogsSizeKB(): Promise<number>
-          SettingsGet(): Promise<any>
-          SettingsUpdatePort(port: number): Promise<void>
-        }
-      }
-    }
-  }
-}
-
-const api = () => window.go.main.App
-
 export const useAppStore = defineStore('app', () => {
   const providers = ref<Provider[]>([])
   const proxyStatus = ref<ProxyStatus>({ running: false, port: 18900, addr: '' })
@@ -118,11 +87,11 @@ export const useAppStore = defineStore('app', () => {
   const loading = ref(false)
 
   async function fetchProxyStatus() {
-    proxyStatus.value = await api().ProxyStatus()
+    proxyStatus.value = await App.ProxyStatus()
   }
 
   async function fetchProviders() {
-    providers.value = await api().ProviderList()
+    providers.value = await App.ProviderList() as any
   }
 
   async function fetchProviderUsageStats() {
@@ -138,7 +107,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   async function fetchProviderUsageSeries(providerID: string) {
-    return await api().GetProviderUsageSeries(providerID)
+    return await App.GetProviderUsageSeries(providerID)
   }
 
   async function fetchAll() {
@@ -156,59 +125,59 @@ export const useAppStore = defineStore('app', () => {
   }
 
   async function createProvider(p: ProviderPayload) {
-    await api().ProviderCreate(p.name, p.base_url, p.api_key, p.default_model, p.model_mappings || [], p.cli_types || [])
+    await App.ProviderCreate(p.name, p.base_url, p.api_key, p.default_model, p.model_mappings || [], p.cli_types || [])
     await fetchProviders()
   }
 
   async function updateProvider(id: string, p: ProviderPayload) {
-    await api().ProviderUpdate(id, p.name, p.base_url, p.api_key, p.default_model, p.model_mappings || [], p.cli_types || [])
+    await App.ProviderUpdate(id, p.name, p.base_url, p.api_key, p.default_model, p.model_mappings || [], p.cli_types || [])
     await fetchProviders()
   }
 
   async function deleteProvider(id: string) {
-    await api().ProviderDelete(id)
+    await App.ProviderDelete(id)
     await fetchProviders()
   }
 
   async function toggleProviderEnabled(id: string, enabled: boolean) {
-    await api().ProviderSetEnabled(id, enabled)
+    await App.ProviderSetEnabled(id, enabled)
     await fetchProviders()
   }
 
   async function resetProviderUsage(id: string) {
-    await api().ProviderResetUsage(id)
+    await App.ProviderResetUsage(id)
     await fetchProviders()
   }
 
   async function writeCLIConfig(cliType: string) {
-    await api().WriteCLIConfig(cliType)
+    await App.WriteCLIConfig(cliType)
   }
 
   async function restartProxy() {
-    await api().ProxyRestart()
+    await App.ProxyRestart()
     await fetchProxyStatus()
   }
 
   async function fetchLogs() {
-    logs.value = (await api().GetProxyLogs()) || []
-    logsSizeKB.value = await api().GetProxyLogsSizeKB()
+    logs.value = ((await App.GetProxyLogs()) || []) as any
+    logsSizeKB.value = await App.GetProxyLogsSizeKB()
     totalTokens.value = logs.value.reduce((sum, log) => sum + (log.total_tokens || 0), 0)
   }
 
   async function clearLogs() {
-    await api().ClearProxyLogs()
+    await App.ClearProxyLogs()
     logs.value = []
     logsSizeKB.value = 0
     totalTokens.value = 0
   }
 
   async function startProxy() {
-    await api().ProxyStart()
+    await App.ProxyStart()
     await fetchProxyStatus()
   }
 
   async function stopProxy() {
-    await api().ProxyStop()
+    await App.ProxyStop()
     await fetchProxyStatus()
   }
 

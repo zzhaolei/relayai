@@ -1,12 +1,17 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { useTheme } from './composables/useTheme'
 import type { ThemeMode } from './composables/useTheme'
+import * as App from '../bindings/relay-ai/app'
 import ProvidersView from './views/ProvidersView.vue'
 import LogViewer from './components/LogViewer.vue'
 
 const activeTab = ref('providers')
-const { themeMode, isDark, theme, setTheme } = useTheme()
+const { themeMode, theme, setTheme } = useTheme()
+
+watch(themeMode, (val) => {
+  App.SetAppearanceMode(val)
+}, { immediate: true })
 
 const themeOptions = [
   { label: '跟随系统', value: 'system' as ThemeMode },

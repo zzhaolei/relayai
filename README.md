@@ -15,36 +15,42 @@ go install tool
 ## 构建
 
 ```bash
-# macOS Apple Silicon
-wails build -platform darwin/arm64
+# macOS — 产出 .app 包
+wails3 task darwin:package                # 当前架构
+wails3 task darwin:package ARCH=arm64     # Apple Silicon，需 macOS 或 Docker
+wails3 task darwin:package ARCH=amd64     # Intel，需 macOS 或 Docker
+wails3 task darwin:package:universal      # Universal（arm64+amd64）
 
-# macOS Intel
-wails build -platform darwin/amd64
+# Windows — 产出 .exe 二进制
+wails3 task windows:build ARCH=amd64      # 任意主机均可交叉编译
+wails3 task windows:build ARCH=arm64
 
-# Windows 64-bit
-wails build -platform windows/amd64
-
-# Windows ARM64
-wails build -platform windows/arm64
-
-# Linux 64-bit
-wails build -platform linux/amd64
-
-# Linux ARM64
-wails build -platform linux/arm64
+# Linux — 产出二进制
+wails3 task linux:build ARCH=amd64        # 需 Linux 原生或 Docker
+wails3 task linux:build ARCH=arm64
 ```
+
+> 跨 OS 构建前准备 Docker 镜像（一次性）：
+> ```bash
+> wails3 task setup:docker
+> ```
+>
+> **规则**：macOS 目标只能用 macOS 或 Docker；Linux 目标需要 Linux 原生或 Docker；Windows 任意主机均可 Go 原生交叉编译。
 
 ## 运行
 
 ```bash
-# macOS
-open build/bin/RelayAI.app
+# macOS（.app 包）
+open bin/RelayAI.app
+
+# macOS（直接运行二进制）
+./bin/RelayAI
 
 # Windows
-build\bin\RelayAI.exe
+bin\RelayAI.exe
 
 # Linux
-./build/bin/relayai
+./bin/relayai
 ```
 
 ## 使用
@@ -57,7 +63,7 @@ build\bin\RelayAI.exe
 ## 开发
 
 ```bash
-wails dev
+wails3 dev
 ```
 
 ## 数据存储

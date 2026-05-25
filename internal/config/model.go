@@ -1,6 +1,10 @@
 package config
 
-import "time"
+import (
+	"crypto/rand"
+	"math/big"
+	"time"
+)
 
 type ModelMapping struct {
 	From string `json:"from"`
@@ -54,7 +58,12 @@ func randomSuffix() string {
 	const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
 	b := make([]byte, 6)
 	for i := range b {
-		b[i] = chars[time.Now().UnixNano()%int64(len(chars))]
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(chars))))
+		if err != nil {
+			b[i] = chars[i%len(chars)]
+			continue
+		}
+		b[i] = chars[n.Int64()]
 	}
 	return string(b)
 }

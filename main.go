@@ -1,42 +1,55 @@
 package main
 
 import (
-	"context"
 	"embed"
+	"log"
 
-	"github.com/wailsapp/wails/v2"
-	"github.com/wailsapp/wails/v2/pkg/options"
-	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 //go:embed all:frontend/dist
 var assets embed.FS
 
+//go:embed build/appicon.png
+var appIcon []byte
+
 func main() {
 	app := NewApp()
 
-	err := wails.Run(&options.App{
+	a := application.New(application.Options{
+		Name:        "RelayAI",
+		Description: "AI 模型反代管理工具",
+		Icon:        appIcon,
+		Services: []application.Service{
+			application.NewService(app),
+		},
+		Assets: application.AssetOptions{
+			Handler: application.AssetFileServerFS(assets),
+		},
+		Mac: application.MacOptions{
+			ApplicationShouldTerminateAfterLastWindowClosed: false,
+		},
+	})
+
+	win := a.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:     "RelayAI",
 		Width:     900,
 		Height:    640,
 		MinWidth:  800,
 		MinHeight: 600,
-		AssetServer: &assetserver.Options{
-			Assets: assets,
-		},
-		BackgroundColour: &options.RGBA{R: 245, G: 247, B: 250, A: 1},
-		OnStartup:        app.startup,
-		OnShutdown:       app.shutdown,
-		OnBeforeClose: func(ctx context.Context) bool {
-			// Hide window instead of closing app
-			return false
-		},
-		Bind: []interface{}{
-			app,
-		},
+		BackgroundColour: application.NewRGB(245, 247, 250),
+		URL:       "/",
 	})
 
+	app.setWindow(win)
+
+	// 初始化代理服务
+	if err := app.initProxy(); err != nil {
+		log.Printf("failed to start proxy: %v", err)
+	}
+
+	err := a.Run()
 	if err != nil {
-		println("Error:", err.Error())
+		log.Fatal(err)
 	}
 }

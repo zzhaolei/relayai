@@ -76,6 +76,10 @@ function buildChart(points: ProviderUsagePoint[]) {
   const innerHeight = height - padding.top - padding.bottom
   const maxValue = Math.max(1, ...points.map(p => p.total_tokens || 0))
 
+  const axisBottom = padding.top + innerHeight
+  const axisRight = padding.left + innerWidth
+  const axisMid = padding.top + innerHeight / 2
+
   function toPoint(value: number, index: number) {
     const x = padding.left + (points.length <= 1 ? innerWidth : (index / (points.length - 1)) * innerWidth)
     const y = padding.top + innerHeight - (value / maxValue) * innerHeight
@@ -90,6 +94,10 @@ function buildChart(points: ProviderUsagePoint[]) {
     width,
     height,
     maxValue,
+    padding,
+    axisBottom,
+    axisRight,
+    axisMid,
     hasData: points.length > 0,
     promptLine: line('prompt_tokens'),
     completionLine: line('completion_tokens'),
@@ -159,11 +167,11 @@ function buildChart(points: ProviderUsagePoint[]) {
         <n-spin :show="loadingSeries">
           <div style="width: 100%; overflow: hidden">
             <svg :viewBox="`0 0 ${chart.width} ${chart.height}`" style="width: 100%; height: 220px; display: block">
-              <line x1="46" y1="18" x2="46" y2="190" stroke="var(--app-border)" />
-              <line x1="46" y1="190" x2="616" y2="190" stroke="var(--app-border)" />
-              <line x1="46" y1="104" x2="616" y2="104" stroke="var(--app-border-2)" stroke-dasharray="4 4" />
-              <text x="4" y="22" fill="currentColor" font-size="11">{{ formatTokens(chart.maxValue) }}</text>
-              <text x="18" y="194" fill="currentColor" font-size="11">0</text>
+              <line :x1="chart.padding.left" :y1="chart.padding.top" :x2="chart.padding.left" :y2="chart.axisBottom" stroke="var(--app-border)" />
+              <line :x1="chart.padding.left" :y1="chart.axisBottom" :x2="chart.axisRight" :y2="chart.axisBottom" stroke="var(--app-border)" />
+              <line :x1="chart.padding.left" :y1="chart.axisMid" :x2="chart.axisRight" :y2="chart.axisMid" stroke="var(--app-border-2)" stroke-dasharray="4 4" />
+              <text :x="chart.padding.left - 42" :y="chart.padding.top + 4" fill="currentColor" font-size="11">{{ formatTokens(chart.maxValue) }}</text>
+              <text :x="chart.padding.left - 28" :y="chart.axisBottom + 4" fill="currentColor" font-size="11">0</text>
               <polyline v-if="chart.hasData" :points="chart.promptLine" fill="none" stroke="#18a058" stroke-width="2" />
               <polyline v-if="chart.hasData" :points="chart.completionLine" fill="none" stroke="#2080f0" stroke-width="2" />
               <polyline v-if="chart.hasData" :points="chart.totalLine" fill="none" stroke="#d03050" stroke-width="2.5" />
