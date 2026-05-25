@@ -117,6 +117,12 @@ func (db *DB) migrateTables() error {
 		"providers.total_tokens":      "ALTER TABLE providers ADD COLUMN total_tokens INTEGER DEFAULT 0",
 		"providers.usage_updated_at":  "ALTER TABLE providers ADD COLUMN usage_updated_at INTEGER DEFAULT 0",
 		"request_logs.provider_id":       "ALTER TABLE request_logs ADD COLUMN provider_id TEXT",
+		"request_logs.upstream_url":      "ALTER TABLE request_logs ADD COLUMN upstream_url TEXT",
+		"providers.auth_token":           "ALTER TABLE providers ADD COLUMN auth_token TEXT",
+		"providers.chat_compat_mode":     "ALTER TABLE providers ADD COLUMN chat_compat_mode INTEGER DEFAULT 0",
+		"request_logs.prompt_tokens":     "ALTER TABLE request_logs ADD COLUMN prompt_tokens INTEGER DEFAULT 0",
+		"request_logs.completion_tokens": "ALTER TABLE request_logs ADD COLUMN completion_tokens INTEGER DEFAULT 0",
+		"request_logs.total_tokens":      "ALTER TABLE request_logs ADD COLUMN total_tokens INTEGER DEFAULT 0",
 	}
 
 	for key, statement := range columns {

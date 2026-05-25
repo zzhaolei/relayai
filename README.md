@@ -1,6 +1,6 @@
 # RelayAI
 
-AI API 代理服务器，支持 Claude、Codex 请求转发。
+将多厂商 AI 模型订阅转换为 Claude / Codex 可用接口。
 
 ## 前置依赖
 
@@ -8,6 +8,7 @@ AI API 代理服务器，支持 Claude、Codex 请求转发。
 - Node.js 18+
 
 安装工具依赖：
+
 ```bash
 go install tool
 ```
@@ -31,6 +32,7 @@ wails3 task linux:build ARCH=arm64
 ```
 
 > 跨 OS 构建前准备 Docker 镜像（一次性）：
+>
 > ```bash
 > wails3 task setup:docker
 > ```

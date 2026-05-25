@@ -12,7 +12,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:visible', value: boolean): void
-  (e: 'reset-usage', id: string): void
 }>()
 
 const store = useAppStore()
@@ -122,18 +121,6 @@ function buildChart(points: ProviderUsagePoint[]) {
             {{ provider.enabled ? '已启用' : '已禁用' }}
           </n-tag>
           <n-text depth="3" style="font-size: 12px">最后用量更新：{{ formatDate(provider.usage_updated_at) }}</n-text>
-        </div>
-        <div style="display: flex; gap: 8px">
-          <n-popconfirm
-            positive-text="确认"
-            negative-text="取消"
-            @positive-click="emit('reset-usage', provider.id)"
-          >
-            <template #trigger>
-              <n-button size="small" type="warning">重置用量</n-button>
-            </template>
-            确定重置该提供商的用量统计？
-          </n-popconfirm>
         </div>
       </div>
 

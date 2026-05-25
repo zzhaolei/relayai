@@ -98,6 +98,7 @@ function formatTokens(value?: number) {
 
     <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px">
       <n-tag v-if="provider.default_model" size="small" type="warning">{{ provider.default_model }}</n-tag>
+      <n-tag v-if="primaryCliType === 'codex' && provider.chat_compat_mode" size="small" type="success">Chat兼容</n-tag>
       <n-text depth="3" style="font-size: 12px; margin-left: auto">总用量 {{ formatTokens(provider.total_tokens) }} tokens</n-text>
     </div>
   </n-card>

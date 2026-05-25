@@ -17,6 +17,7 @@ export interface Provider {
   default_model: string
   model_mappings: ModelMapping[]
   cli_types: CLIType[]
+  chat_compat_mode: boolean
   enabled: boolean
   created_at: number
   prompt_tokens: number
@@ -25,7 +26,7 @@ export interface Provider {
   usage_updated_at: number
 }
 
-type ProviderPayload = Omit<Provider, 'id' | 'created_at' | 'enabled' | 'prompt_tokens' | 'completion_tokens' | 'total_tokens' | 'usage_updated_at'>
+type ProviderPayload = Omit<Provider, 'id' | 'created_at' | 'enabled' | 'prompt_tokens' | 'completion_tokens' | 'total_tokens' | 'usage_updated_at' | 'auth_token'>
 
 export interface ProxyStatus {
   running: boolean
@@ -86,6 +87,13 @@ export const useAppStore = defineStore('app', () => {
   const totalTokens = ref(0)
   const loading = ref(false)
 
+  let statusTimer: ReturnType<typeof setInterval> | null = null
+
+  function startStatusPolling() {
+    if (statusTimer) return
+    statusTimer = setInterval(fetchProxyStatus, 3000)
+  }
+
   async function fetchProxyStatus() {
     proxyStatus.value = await App.ProxyStatus()
   }
@@ -122,15 +130,16 @@ export const useAppStore = defineStore('app', () => {
     } finally {
       loading.value = false
     }
+    startStatusPolling()
   }
 
   async function createProvider(p: ProviderPayload) {
-    await App.ProviderCreate(p.name, p.base_url, p.api_key, p.default_model, p.model_mappings || [], p.cli_types || [])
+    await App.ProviderCreate(p.name, p.base_url, p.api_key, p.default_model, p.model_mappings || [], p.cli_types || [], p.chat_compat_mode || false)
     await fetchProviders()
   }
 
   async function updateProvider(id: string, p: ProviderPayload) {
-    await App.ProviderUpdate(id, p.name, p.base_url, p.api_key, p.default_model, p.model_mappings || [], p.cli_types || [])
+    await App.ProviderUpdate(id, p.name, p.base_url, p.api_key, p.default_model, p.model_mappings || [], p.cli_types || [], p.chat_compat_mode || false)
     await fetchProviders()
   }
 
@@ -141,11 +150,6 @@ export const useAppStore = defineStore('app', () => {
 
   async function toggleProviderEnabled(id: string, enabled: boolean) {
     await App.ProviderSetEnabled(id, enabled)
-    await fetchProviders()
-  }
-
-  async function resetProviderUsage(id: string) {
-    await App.ProviderResetUsage(id)
     await fetchProviders()
   }
 
@@ -196,7 +200,6 @@ export const useAppStore = defineStore('app', () => {
     updateProvider,
     deleteProvider,
     toggleProviderEnabled,
-    resetProviderUsage,
     writeCLIConfig,
     restartProxy,
     startProxy,

@@ -71,7 +71,7 @@ func (s *Store) SetPort(port int) error {
 }
 
 func (s *Store) getProviders() []Provider {
-	rows, err := s.db.Query("SELECT id, name, base_url, api_key, default_model, model_mappings, cli_types, enabled, created_at, prompt_tokens, completion_tokens, total_tokens, usage_updated_at FROM providers ORDER BY created_at")
+	rows, err := s.db.Query("SELECT id, name, base_url, api_key, auth_token, default_model, model_mappings, cli_types, chat_compat_mode, enabled, created_at, prompt_tokens, completion_tokens, total_tokens, usage_updated_at FROM providers ORDER BY created_at")
 	if err != nil {
 		return nil
 	}
@@ -93,8 +93,8 @@ func (s *Store) AddProvider(p Provider) error {
 	cliTypesJSON, _ := json.Marshal(p.CLITypes)
 
 	_, err := s.db.Exec(
-		"INSERT INTO providers (id, name, base_url, api_key, default_model, model_mappings, cli_types, enabled, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		p.ID, p.Name, p.BaseURL, p.APIKey, p.DefaultModel, string(modelMappingsJSON), string(cliTypesJSON), p.Enabled, p.CreatedAt,
+		"INSERT INTO providers (id, name, base_url, api_key, auth_token, default_model, model_mappings, cli_types, chat_compat_mode, enabled, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		p.ID, p.Name, p.BaseURL, p.APIKey, p.AuthToken, p.DefaultModel, string(modelMappingsJSON), string(cliTypesJSON), p.ChatCompatMode, p.Enabled, p.CreatedAt,
 	)
 	return err
 }
@@ -107,8 +107,8 @@ func (s *Store) UpdateProvider(id string, p Provider) error {
 	cliTypesJSON, _ := json.Marshal(p.CLITypes)
 
 	_, err := s.db.Exec(
-		"UPDATE providers SET name=?, base_url=?, api_key=?, default_model=?, model_mappings=?, cli_types=? WHERE id=?",
-		p.Name, p.BaseURL, p.APIKey, p.DefaultModel, string(modelMappingsJSON), string(cliTypesJSON), id,
+		"UPDATE providers SET name=?, base_url=?, api_key=?, default_model=?, model_mappings=?, cli_types=?, chat_compat_mode=? WHERE id=?",
+		p.Name, p.BaseURL, p.APIKey, p.DefaultModel, string(modelMappingsJSON), string(cliTypesJSON), p.ChatCompatMode, id,
 	)
 	return err
 }
@@ -129,27 +129,47 @@ func (s *Store) SetProviderEnabled(id string, enabled bool) error {
 	return err
 }
 
-func (s *Store) ResetProviderUsage(id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if _, err := s.db.Exec("UPDATE providers SET prompt_tokens = 0, completion_tokens = 0, total_tokens = 0, usage_updated_at = 0 WHERE id = ?", id); err != nil {
-		return err
+func (s *Store) GetProvider(id string) *Provider {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	rows, err := s.db.Query("SELECT id, name, base_url, api_key, auth_token, default_model, model_mappings, cli_types, chat_compat_mode, enabled, created_at, prompt_tokens, completion_tokens, total_tokens, usage_updated_at FROM providers WHERE id = ?", id)
+	if err != nil {
+		return nil
 	}
-	_, err := s.db.Exec("DELETE FROM provider_usage_points WHERE provider_id = ?", id)
-	return err
+	defer rows.Close()
+	providers := scanProviders(rows)
+	if len(providers) == 0 {
+		return nil
+	}
+	return &providers[0]
 }
 
 func (s *Store) GetEnabledProviders() []Provider {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	rows, err := s.db.Query("SELECT id, name, base_url, api_key, default_model, model_mappings, cli_types, enabled, created_at, prompt_tokens, completion_tokens, total_tokens, usage_updated_at FROM providers WHERE enabled = 1 ORDER BY created_at")
+	rows, err := s.db.Query("SELECT id, name, base_url, api_key, auth_token, default_model, model_mappings, cli_types, chat_compat_mode, enabled, created_at, prompt_tokens, completion_tokens, total_tokens, usage_updated_at FROM providers WHERE enabled = 1 ORDER BY created_at")
 	if err != nil {
 		return nil
 	}
 	defer rows.Close()
 	return scanProviders(rows)
+}
+
+func (s *Store) GetProviderByAuthToken(token string) *Provider {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rows, err := s.db.Query("SELECT id, name, base_url, api_key, auth_token, default_model, model_mappings, cli_types, chat_compat_mode, enabled, created_at, prompt_tokens, completion_tokens, total_tokens, usage_updated_at FROM providers WHERE auth_token = ? AND enabled = 1", token)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	providers := scanProviders(rows)
+	if len(providers) == 0 {
+		return nil
+	}
+	return &providers[0]
 }
 
 func scanProviders(rows *sql.Rows) []Provider {
@@ -162,9 +182,11 @@ func scanProviders(rows *sql.Rows) []Provider {
 			&p.Name,
 			&p.BaseURL,
 			&p.APIKey,
+			&p.AuthToken,
 			&p.DefaultModel,
 			&modelMappingsJSON,
 			&cliTypesJSON,
+			&p.ChatCompatMode,
 			&p.Enabled,
 			&p.CreatedAt,
 			&p.PromptTokens,

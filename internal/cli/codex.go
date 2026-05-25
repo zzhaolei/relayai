@@ -23,6 +23,14 @@ func codexConfigPath() (string, error) {
 	return filepath.Join(home, codexDir, codexConfig), nil
 }
 
+func codexAuthPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, codexDir, "auth.json"), nil
+}
+
 func codexEnvPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -92,6 +100,13 @@ func EnableCodexProvider(baseURL, apiKey string) error {
 		return err
 	}
 
+	// Write auth.json
+	authPath, _ := codexAuthPath()
+	authContent := fmt.Sprintf("{\n  \"auth_mode\": \"apikey\",\n  \"OPENAI_API_KEY\": \"%s\"\n}\n", apiKey)
+	if err := os.WriteFile(authPath, []byte(authContent), 0600); err != nil {
+		return err
+	}
+
 	// Write env file for OPENAI_API_KEY
 	envPath, _ := codexEnvPath()
 	envContent := fmt.Sprintf("# RelayAI auto-generated\nexport OPENAI_API_KEY=\"%s\"\n", apiKey)
@@ -116,9 +131,11 @@ func DisableCodexProvider() error {
 		m["model_providers"] = providers
 	}
 
-	// Remove env file
+	// Remove env file and auth.json
 	envPath, _ := codexEnvPath()
 	os.Remove(envPath)
+	authPath, _ := codexAuthPath()
+	os.Remove(authPath)
 
 	return WriteCodexConfig(m)
 }

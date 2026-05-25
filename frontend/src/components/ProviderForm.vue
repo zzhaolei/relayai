@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { useAppMessage } from '../composables/useMessage'
 import type { Provider, ModelMapping, CLIType } from '../stores/app'
 import { CLI_TYPES } from '../stores/app'
@@ -19,6 +19,7 @@ const emit = defineEmits<{
     default_model: string
     model_mappings: ModelMapping[]
     cli_types: CLIType[]
+    chat_compat_mode: boolean
   }): void
 }>()
 
@@ -31,9 +32,12 @@ const form = ref({
   api_key: '',
   default_model: '',
   cli_type: null as CLIType | null,
+  chat_compat_mode: false,
 })
 
 const mappings = ref<ModelMapping[]>([])
+
+const showChatCompat = computed(() => form.value.cli_type === 'codex')
 
 watch(() => props.visible, (val) => {
   if (val && props.provider) {
@@ -43,11 +47,18 @@ watch(() => props.visible, (val) => {
       api_key: props.provider.api_key,
       default_model: props.provider.default_model || '',
       cli_type: props.provider.cli_types?.[0] || null,
+      chat_compat_mode: props.provider.chat_compat_mode || false,
     }
     mappings.value = (props.provider.model_mappings || []).map(m => ({ ...m }))
   } else if (val) {
-    form.value = { name: '', base_url: '', api_key: '', default_model: '', cli_type: null }
+    form.value = { name: '', base_url: '', api_key: '', default_model: '', cli_type: null, chat_compat_mode: false }
     mappings.value = []
+  }
+})
+
+watch(() => form.value.cli_type, (val) => {
+  if (val !== 'codex') {
+    form.value.chat_compat_mode = false
   }
 })
 
@@ -96,6 +107,7 @@ function handleSubmit() {
     default_model: form.value.default_model.trim(),
     model_mappings: validMappings,
     cli_types: [form.value.cli_type],
+    chat_compat_mode: form.value.cli_type === 'codex' && form.value.chat_compat_mode,
   })
   emit('update:visible', false)
 }
@@ -115,39 +127,6 @@ function handleCancel() {
     :bordered="false"
   >
     <n-form label-placement="top">
-      <n-form-item label="名称" required>
-        <n-input v-model:value="form.name" placeholder="例如：DeepSeek_01" />
-        <template #feedback>仅支持英文、数字、下划线和 -</template>
-      </n-form-item>
-      <n-form-item label="API Base URL" required>
-        <n-input v-model:value="form.base_url" placeholder="例如：https://api.deepseek.com" />
-      </n-form-item>
-      <n-form-item label="API Key" required>
-        <n-input v-model:value="form.api_key" type="password" show-password-on="click" placeholder="sk-..." />
-      </n-form-item>
-
-      <n-divider style="margin: 8px 0" />
-
-      <n-form-item label="默认模型">
-        <n-input v-model:value="form.default_model" placeholder="例如：gpt-4o" />
-        <template #feedback>未命中模型映射时使用默认模型</template>
-      </n-form-item>
-
-      <n-form-item label="模型映射">
-        <div style="display: flex; flex-direction: column; gap: 8px; width: 100%">
-          <div v-for="(m, index) in mappings" :key="index" style="display: flex; align-items: center; gap: 8px">
-            <n-input v-model:value="m.from" placeholder="外部模型名" size="small" style="flex: 1" />
-            <n-text depth="3">→</n-text>
-            <n-input v-model:value="m.to" placeholder="内部模型名" size="small" style="flex: 1" />
-            <n-button text type="error" size="tiny" @click="removeMapping(index)">删除</n-button>
-          </div>
-          <n-button dashed size="small" @click="addMapping" block>+ 添加映射</n-button>
-        </div>
-        <template #feedback>命中映射时优先使用映射模型</template>
-      </n-form-item>
-
-      <n-divider style="margin: 8px 0" />
-
       <n-form-item label="支持的 CLI 平台" required>
         <n-radio-group v-model:value="form.cli_type">
           <n-space>
@@ -160,6 +139,46 @@ function handleCancel() {
           </n-space>
         </n-radio-group>
         <template #feedback>选择该提供商支持的 CLI 平台，代理会根据请求类型路由到对应提供商</template>
+      </n-form-item>
+
+      <n-form-item v-if="showChatCompat" label="Chat 兼容模式">
+        <n-switch v-model:value="form.chat_compat_mode" />
+        <template #feedback>
+          开启后代理会将 Codex 的 Responses API 请求转为 Chat Completions 格式发送给上游提供商（适用于不支持 Responses API 的提供商，如 DeepSeek）。关闭则直接透传 Responses API（适用于支持 Responses API 的提供商，如 OpenAI）。
+        </template>
+      </n-form-item>
+
+      <n-divider style="margin: 8px 0" />
+
+      <n-form-item label="名称" required>
+        <n-input :input-props="{ spellcheck: 'false' }" v-model:value="form.name" placeholder="例如：DeepSeek_01" />
+        <template #feedback>仅支持英文、数字、下划线和 -</template>
+      </n-form-item>
+      <n-form-item label="API Base URL" required>
+        <n-input :input-props="{ spellcheck: 'false' }" v-model:value="form.base_url" placeholder="例如：https://api.deepseek.com" />
+      </n-form-item>
+      <n-form-item label="API Key" required>
+        <n-input :input-props="{ spellcheck: 'false' }" v-model:value="form.api_key" type="password" show-password-on="click" placeholder="sk-..." />
+      </n-form-item>
+
+      <n-divider style="margin: 8px 0" />
+
+      <n-form-item label="默认模型">
+        <n-input :input-props="{ spellcheck: 'false' }" v-model:value="form.default_model" placeholder="例如：gpt-4o" />
+        <template #feedback>未命中模型映射时使用默认模型</template>
+      </n-form-item>
+
+      <n-form-item label="模型映射">
+        <div style="display: flex; flex-direction: column; gap: 8px; width: 100%">
+          <div v-for="(m, index) in mappings" :key="index" style="display: flex; align-items: center; gap: 8px">
+            <n-input :input-props="{ spellcheck: 'false' }" v-model:value="m.from" placeholder="外部模型名" size="small" style="flex: 1" />
+            <n-text depth="3">→</n-text>
+            <n-input :input-props="{ spellcheck: 'false' }" v-model:value="m.to" placeholder="内部模型名" size="small" style="flex: 1" />
+            <n-button text type="error" size="tiny" @click="removeMapping(index)">删除</n-button>
+          </div>
+          <n-button dashed size="small" @click="addMapping" block>+ 添加映射</n-button>
+        </div>
+        <template #feedback>命中映射时优先使用映射模型</template>
       </n-form-item>
     </n-form>
 

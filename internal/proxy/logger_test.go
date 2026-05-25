@@ -35,12 +35,16 @@ func TestGetProviderUsageStats(t *testing.T) {
 			time INTEGER NOT NULL,
 			method TEXT,
 			path TEXT,
+			upstream_url TEXT,
 			cli_type TEXT,
 			provider_id TEXT,
 			provider TEXT,
 			model TEXT,
 			status_code INTEGER,
 			duration_ms INTEGER,
+			prompt_tokens INTEGER DEFAULT 0,
+			completion_tokens INTEGER DEFAULT 0,
+			total_tokens INTEGER DEFAULT 0,
 			error TEXT,
 			response_body TEXT
 		);

@@ -116,7 +116,7 @@ watch(() => props.active, (val) => {
             </n-text>
             <n-tag v-if="log.model" size="small" style="flex-shrink: 0">{{ log.model }}</n-tag>
             <n-text v-if="log.total_tokens > 0" depth="3" style="font-size: 11px; font-family: monospace; flex-shrink: 0">
-              {{ log.prompt_tokens }}+{{ log.completion_tokens }}={{ log.total_tokens }}
+              入{{ log.prompt_tokens }} 出{{ log.completion_tokens }} 共{{ log.total_tokens }}
             </n-text>
             <n-text depth="3" style="font-size: 12px; font-family: monospace; flex-shrink: 0">
               {{ formatDuration(log.duration_ms) }}

@@ -2,6 +2,8 @@ package config
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"math/big"
 	"time"
 )
@@ -16,9 +18,11 @@ type Provider struct {
 	Name             string         `json:"name"`
 	BaseURL          string         `json:"base_url"`
 	APIKey           string         `json:"api_key"`
+	AuthToken        string         `json:"auth_token"`
 	DefaultModel     string         `json:"default_model"`
 	ModelMappings    []ModelMapping `json:"model_mappings"`
 	CLITypes         []string       `json:"cli_types"`
+	ChatCompatMode   bool           `json:"chat_compat_mode"`
 	Enabled          bool           `json:"enabled"`
 	CreatedAt        int64          `json:"created_at"`
 	PromptTokens     int64          `json:"prompt_tokens"`
@@ -45,9 +49,18 @@ func NewProvider(name, baseURL, apiKey string) Provider {
 		Name:      name,
 		BaseURL:   baseURL,
 		APIKey:    apiKey,
+		AuthToken: generateAuthToken(),
 		Enabled:   true,
 		CreatedAt: time.Now().Unix(),
 	}
+}
+
+// generateAuthToken 生成本地密钥 sk-local-<40位hex>
+func generateAuthToken() string {
+	b := make([]byte, 20)
+	rand.Read(b)
+	h := sha256.Sum256(b)
+	return "sk-local-" + hex.EncodeToString(h[:])[:40]
 }
 
 func generateID() string {

@@ -23,13 +23,15 @@ type Server struct {
 	running    bool
 	store      *config.Store
 	logger     *Logger
+	sessions   *SessionStore
 }
 
 func New(store *config.Store, db *sql.DB) *Server {
 	return &Server{
-		store:  store,
-		port:   store.GetPort(),
-		logger: NewLogger(db),
+		store:    store,
+		port:     store.GetPort(),
+		logger:   NewLogger(db),
+		sessions: NewSessionStore(),
 	}
 }
 
@@ -43,7 +45,7 @@ func (s *Server) Start() error {
 
 	s.port = s.store.GetPort()
 	addr := fmt.Sprintf("127.0.0.1:%d", s.port)
-	handler := newRouter(s.store, s.logger)
+	handler := newRouter(s.store, s.logger, s.sessions)
 
 	s.httpServer = &http.Server{
 		Addr:    addr,
@@ -110,6 +112,10 @@ func (s *Server) GetProviderUsageSeries(providerID string) []ProviderUsagePoint 
 
 func (s *Server) ClearLogs() {
 	s.logger.Clear()
+}
+
+func (s *Server) GetTotalTokenUsage() (int64, int64, int64) {
+	return s.logger.GetTotalTokens()
 }
 
 func (s *Server) GetLogsSizeKB() int64 {

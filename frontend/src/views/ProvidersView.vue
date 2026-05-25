@@ -58,6 +58,7 @@ async function handleFormSubmit(data: {
   default_model: string
   model_mappings: ModelMapping[]
   cli_types: CLIType[]
+  chat_compat_mode: boolean
 }) {
   try {
     const payload = {
@@ -67,6 +68,7 @@ async function handleFormSubmit(data: {
       default_model: data.default_model,
       model_mappings: data.model_mappings,
       cli_types: data.cli_types,
+      chat_compat_mode: data.chat_compat_mode,
     }
     if (editingProvider.value) {
       await store.updateProvider(editingProvider.value.id, payload)
@@ -101,14 +103,6 @@ async function refreshUsageStats() {
   }
 }
 
-async function handleResetUsage(id: string) {
-  try {
-    await store.resetProviderUsage(id)
-    message.success('用量已重置')
-  } catch (e: any) {
-    message.error(getErrorMessage(e, '重置失败'))
-  }
-}
 </script>
 
 <template>
@@ -156,7 +150,6 @@ async function handleResetUsage(id: string) {
     <ProviderDetailsModal
       v-model:visible="detailsVisible"
       :provider="selectedProvider"
-      @reset-usage="handleResetUsage"
     />
   </div>
 </template>
