@@ -119,14 +119,14 @@ async function refreshUsageStats() {
         </div>
         <div style="display: flex; gap: 8px">
           <n-button :loading="usageRefreshing" @click="refreshUsageStats">刷新用量</n-button>
-          <n-button type="primary" @click="openAddForm">+ 添加提供商</n-button>
+          <n-button type="primary" @mousedown.prevent @click="openAddForm">+ 添加提供商</n-button>
         </div>
       </div>
 
       <n-spin :show="store.loading" style="width: 100%">
         <n-empty v-if="store.providers.length === 0 && !store.loading" description="暂无提供商" style="padding: 60px 0">
           <template #extra>
-            <n-button type="primary" @click="openAddForm">添加第一个提供商</n-button>
+            <n-button type="primary" @mousedown.prevent @click="openAddForm">添加第一个提供商</n-button>
           </template>
         </n-empty>
 

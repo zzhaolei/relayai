@@ -26,9 +26,10 @@ type App struct {
 }
 
 type ProxyStatus struct {
-	Running bool   `json:"running"`
-	Port    int    `json:"port"`
-	Addr    string `json:"addr"`
+	Running        bool   `json:"running"`
+	Port           int    `json:"port"`
+	Addr           string `json:"addr"`
+	ProxyAuthToken string `json:"proxy_auth_token"`
 }
 
 func NewApp() *App {
@@ -74,9 +75,10 @@ func (a *App) ProxyRestart() error {
 func (a *App) ProxyStatus() ProxyStatus {
 	s := a.proxy.Status()
 	return ProxyStatus{
-		Running: s.Running,
-		Port:    s.Port,
-		Addr:    s.Addr,
+		Running:        s.Running,
+		Port:           s.Port,
+		Addr:           s.Addr,
+		ProxyAuthToken: a.store.GetProxyAuthToken(),
 	}
 }
 
@@ -163,11 +165,12 @@ func (a *App) WriteCLIConfig(cliType string) error {
 	proxyAddr := fmt.Sprintf("127.0.0.1:%d", a.store.GetPort())
 	proxyBaseURL := fmt.Sprintf("http://%s", proxyAddr)
 
+	proxyToken := a.store.GetProxyAuthToken()
 	switch cliType {
 	case "claude":
-		return cli.EnableClaudeProvider(proxyBaseURL+"/anthropic", provider.AuthToken)
+		return cli.EnableClaudeProvider(proxyBaseURL+"/anthropic", proxyToken)
 	case "codex":
-		return cli.EnableCodexProvider(proxyBaseURL+"/openai", provider.AuthToken)
+		return cli.EnableCodexProvider(proxyBaseURL+"/openai", proxyToken)
 	default:
 		return fmt.Errorf("unknown cli type: %s", cliType)
 	}
@@ -230,4 +233,18 @@ func (a *App) SetAppearanceMode(mode string) {
 		hwnd = a.win.NativeWindow()
 	}
 	native.SetWindowAppearance(hwnd, mode)
+}
+
+// --- Debug Mode ---
+
+func (a *App) GetDebugMode() bool {
+	return a.store.GetDebugMode()
+}
+
+func (a *App) SetDebugMode(enabled bool) error {
+	if err := a.store.SetDebugMode(enabled); err != nil {
+		return err
+	}
+	a.proxy.SetDebug(enabled)
+	return nil
 }

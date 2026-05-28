@@ -1,8 +1,19 @@
 /**
  * 遮蔽 API Key，只显示前4位和后4位
+ * 如果以 sk-local- 开头，则保留该前缀，从后面开始遮蔽
  */
 export function maskKey(key: string): string {
   if (!key) return '未设置'
+  
+  // 如果以 sk-local- 开头，保留前缀，遮蔽中间部分
+  const prefix = 'sk-local-'
+  if (key.startsWith(prefix)) {
+    const rest = key.slice(prefix.length)
+    if (rest.length <= 8) return prefix + '****'
+    return prefix + rest.slice(0, 4) + '****' + rest.slice(-4)
+  }
+  
+  // 默认：显示前4位和后4位
   if (key.length <= 8) return '****'
   return key.slice(0, 4) + '****' + key.slice(-4)
 }
@@ -28,6 +39,20 @@ export async function copyToClipboard(text: string): Promise<boolean> {
   } catch {
     return false
   }
+}
+
+/**
+ * 格式化 token 数量，超过1000使用k，超过1000000使用m
+ */
+export function formatTokens(value?: number): string {
+  const num = value || 0
+  if (num >= 1_000_000) {
+    return (num / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'm'
+  }
+  if (num >= 1_000) {
+    return (num / 1_000).toFixed(1).replace(/\.0$/, '') + 'k'
+  }
+  return num.toString()
 }
 
 /**

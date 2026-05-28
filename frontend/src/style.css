@@ -34,3 +34,13 @@ html, body, #app {
   background: var(--app-bg-1);
   color: var(--app-text-2);
 }
+
+/* 统一处理：按钮点击后不保持焦点高亮，只在激活时显示 */
+.n-button:focus,
+.n-button:focus-visible,
+.n-button:active {
+  color: var(--n-text-color) !important;
+  border-color: var(--n-border-color) !important;
+  box-shadow: none !important;
+  outline: none !important;
+}

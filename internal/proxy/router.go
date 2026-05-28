@@ -3,6 +3,7 @@ package proxy
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,10 +11,30 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"relay-ai/internal/config"
 )
+// jsonMarshalSafe marshals JSON without HTML-escaping <, >, &.
+// Go's json.Marshal HTML-escapes these by default, but codex-relay's serde_json
+// does not. Codex CLI was tested against codex-relay output, and the escaping
+// mismatch can cause parse failures in SSE event data during long responses.
+func jsonMarshalSafe(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	b := buf.Bytes()
+	// Encode appends a trailing newline; strip it.
+	if len(b) > 0 && b[len(b)-1] == '\n' {
+		b = b[:len(b)-1]
+	}
+	return b, nil
+}
 
 
 const (
@@ -21,12 +42,19 @@ const (
 	cliCodex  = "codex"
 )
 
-func newRouter(store *config.Store, logger *Logger, sessions *SessionStore) http.Handler {
+// debugLog logs a message only when debug mode is enabled.
+func debugLog(debug *atomic.Bool, format string, args ...any) {
+	if debug != nil && debug.Load() {
+		log.Printf(format, args...)
+	}
+}
+
+func newRouter(store *config.Store, logger *Logger, sessions *SessionStore, debug *atomic.Bool) http.Handler {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/anthropic/{path...}", makeHandler(store, logger, sessions, cliClaude, "/anthropic"))
-	mux.HandleFunc("/openai/{path...}", makeHandler(store, logger, sessions, cliCodex, "/openai"))
-	mux.HandleFunc("/v1/responses", makeHandler(store, logger, sessions, cliCodex, ""))
+	mux.HandleFunc("/anthropic/{path...}", makeHandler(store, logger, sessions, cliClaude, "/anthropic", debug))
+	mux.HandleFunc("/openai/{path...}", makeHandler(store, logger, sessions, cliCodex, "/openai", debug))
+	mux.HandleFunc("/v1/responses", makeHandler(store, logger, sessions, cliCodex, "", debug))
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
@@ -35,13 +63,17 @@ func newRouter(store *config.Store, logger *Logger, sessions *SessionStore) http
 	return mux
 }
 
-func makeHandler(store *config.Store, logger *Logger, sessions *SessionStore, cliType, prefix string) http.HandlerFunc {
+func makeHandler(store *config.Store, logger *Logger, sessions *SessionStore, cliType, prefix string, debug *atomic.Bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
 		var providers []config.Provider
 		if token := extractBearerToken(r); strings.HasPrefix(token, "sk-local-") {
-			if p := store.GetProviderByAuthToken(token); p != nil {
+			// 代理级 token：走默认路由（所有启用的 provider）
+			if token == store.GetProxyAuthToken() {
+				// fall through to default routing below
+			} else if p := store.GetProviderByAuthToken(token); p != nil {
+				// 提供商级 token：路由到特定 provider
 				providers = []config.Provider{*p}
 			}
 		}
@@ -102,9 +134,9 @@ func makeHandler(store *config.Store, logger *Logger, sessions *SessionStore, cl
 			} else if strings.HasSuffix(upstreamPath, "/responses") {
 				upstreamPath = strings.TrimSuffix(upstreamPath, "/responses") + "/chat/completions"
 			}
-			log.Printf("[codex] path=%s chatCompatMode=true stream=%v body=%s", r.URL.Path, isStreamingRequest(bodyBytes), string(bodyBytes[:min(len(bodyBytes), 2000)]))
+			debugLog(debug, "[codex] path=%s chatCompatMode=true stream=%v body=%s", r.URL.Path, isStreamingRequest(bodyBytes), string(bodyBytes[:min(len(bodyBytes), 2000)]))
 			bodyBytes, requestModel = toChatRequest(bodyBytes, sessions)
-			log.Printf("[codex] converted=%s", string(bodyBytes[:min(len(bodyBytes), 2000)]))
+			debugLog(debug, "[codex] converted=%s", string(bodyBytes[:min(len(bodyBytes), 2000)]))
 
 			// Extract messages for session history
 			var reqMap map[string]any
@@ -133,7 +165,7 @@ func makeHandler(store *config.Store, logger *Logger, sessions *SessionStore, cl
 				continue
 			}
 
-			providerBody := transformBody(bodyBytes, &provider)
+			providerBody := transformBody(bodyBytes, &provider, debug)
 			actualModel := extractModel(providerBody)
 
 			upstreamURL := joinURL(target, upstreamPath)
@@ -141,11 +173,11 @@ func makeHandler(store *config.Store, logger *Logger, sessions *SessionStore, cl
 				upstreamURL += "?" + r.URL.RawQuery
 			}
 
-			log.Printf("proxy %s [%d/%d] %s -> %s", cliType, i+1, len(providers), r.Method, upstreamURL)
+			debugLog(debug, "proxy %s [%d/%d] %s -> %s", cliType, i+1, len(providers), r.Method, upstreamURL)
 
 			needResponseConversion := isResponsesPath && chatCompatMode
 			canFallback := i < len(providers)-1
-			result := tryProvider(w, r, upstreamURL, providerBody, &provider, canFallback, needResponseConversion, sessions, requestModel, requestMessages)
+			result := tryProvider(w, r, upstreamURL, providerBody, &provider, canFallback, needResponseConversion, sessions, requestModel, requestMessages, debug)
 			if result.StatusCode > 0 {
 				logger.Add(RequestLog{
 					Method:       r.Method,
@@ -710,9 +742,13 @@ type toolCallAccum struct {
 }
 
 // translateStream converts an upstream Chat Completions SSE stream into Responses API SSE.
-func translateStream(w http.ResponseWriter, resp *http.Response, flusher http.Flusher, canFlush bool, requestModel string, sessions *SessionStore, requestMessages []map[string]any) (promptTokens, completionTokens, totalTokens int) {
-	responseID := sessions.NewID()
-	msgItemID := fmt.Sprintf("msg_%s", responseID)
+func translateStream(ctx context.Context, w http.ResponseWriter, resp *http.Response, flusher http.Flusher, canFlush bool, requestModel string, sessions *SessionStore, requestMessages []map[string]any, preResponseID string, keepAliveDone chan struct{}, writeMu *sync.Mutex, debug *atomic.Bool) (promptTokens, completionTokens, totalTokens int) {
+	responseID := preResponseID
+	if responseID == "" {
+		responseID = sessions.NewID()
+	}
+	// msg_item_id uses an independent id, matching codex-relay (separate UUID)
+	msgItemID := fmt.Sprintf("msg_%d", time.Now().UnixNano())
 
 	flusher, canFlush = ensureFlusher(w, flusher)
 	headersSent := false
@@ -735,47 +771,32 @@ func translateStream(w http.ResponseWriter, resp *http.Response, flusher http.Fl
 	writeEvent := func(eventType string, fields map[string]any) {
 		ensureHeaders()
 		seq++
-		fieldsJSON, _ := json.Marshal(fields)
+		fieldsJSON, _ := jsonMarshalSafe(fields)
 		b := make([]byte, 0, len(fieldsJSON)+len(eventType)+12)
 		b = append(b, `{"type":"`...)
 		b = append(b, eventType...)
 		b = append(b, `",`...)
 		b = append(b, fieldsJSON[1:]...)
 		if seq <= 10 || eventType == "response.completed" || eventType == "response.output_item.done" {
-			log.Printf("[codex-sse] -> event #%d: %s (data=%s)", seq, eventType, string(b[:min(len(b), 300)]))
+			debugLog(debug, "[codex-sse] -> event #%d: %s (data=%s)", seq, eventType, string(b[:min(len(b), 300)]))
 		}
+		writeMu.Lock()
 		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, b)
 		if canFlush {
 			flusher.Flush()
 		}
+		writeMu.Unlock()
 	}
 
-	// Emit response.created immediately
-	writeEvent("response.created", map[string]any{
-		"response": map[string]any{
-			"id":     responseID,
-			"status": "in_progress",
-			"model":  requestModel,
-		},
-	})
-
-	// Send periodic keep-alive comments (every ~30s, non-blocking)
-	if canFlush {
-		keepAliveDone := make(chan struct{})
-		defer close(keepAliveDone)
-		go func() {
-			ticker := time.NewTicker(30 * time.Second)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-keepAliveDone:
-					return
-				case <-ticker.C:
-					fmt.Fprintf(w, ": keepalive\n\n")
-					flusher.Flush()
-				}
-			}
-		}()
+	// Emit response.created if not already sent before upstream request
+	if preResponseID == "" {
+		writeEvent("response.created", map[string]any{
+			"response": map[string]any{
+				"id":     responseID,
+				"status": "in_progress",
+				"model":  requestModel,
+			},
+		})
 	}
 
 	var (
@@ -793,6 +814,12 @@ func translateStream(w http.ResponseWriter, resp *http.Response, flusher http.Fl
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(nil, 500*1024*1024)
 
+	// 监听客户端断开信号
+	go func() {
+		<-ctx.Done()
+		resp.Body.Close()
+	}()
+
 	chunkCount := 0
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -802,13 +829,13 @@ func translateStream(w http.ResponseWriter, resp *http.Response, flusher http.Fl
 		}
 		if payload == "[DONE]" {
 			streamDone = true
-			log.Printf("[codex-sse] received [DONE] after %d chunks", chunkCount)
+			debugLog(debug, "[codex-sse] received [DONE] after %d chunks", chunkCount)
 			break
 		}
 
 		chunkCount++
 		if chunkCount <= 3 {
-			log.Printf("[codex-sse] upstream chunk #%d: %s", chunkCount, payload[:min(len(payload), 300)])
+			debugLog(debug, "[codex-sse] upstream chunk #%d: %s", chunkCount, payload[:min(len(payload), 300)])
 		}
 
 		var chunk struct {
@@ -837,7 +864,8 @@ func translateStream(w http.ResponseWriter, resp *http.Response, flusher http.Fl
 			} `json:"usage"`
 		}
 		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
-			continue
+			log.Printf("[codex-sse] chunk parse error at #%d: %v", chunkCount, err)
+			continue // 跳过这个 chunk，继续处理下一个
 		}
 		if len(chunk.Choices) == 0 {
 			if chunk.Usage != nil {
@@ -919,10 +947,15 @@ func translateStream(w http.ResponseWriter, resp *http.Response, flusher http.Fl
 		}
 	}
 
+
+	// Check for scanner errors (upstream connection drop, timeout, etc.)
+	if err := scanner.Err(); err != nil {
+		log.Printf("[codex-sse] scanner error after %d chunks: %v", chunkCount, err)
+	}
 	// --- Finalize ---
 	ensureHeaders()
 
-	log.Printf("[codex-sse] finalize: chunks=%d msgItemID=%s toolCalls=%d textLen=%d reasoningLen=%d usage=%+v",
+	debugLog(debug, "[codex-sse] finalize: chunks=%d msgItemID=%s toolCalls=%d textLen=%d reasoningLen=%d usage=%+v",
 		chunkCount, msgItemID, len(toolCalls), accumulatedText.Len(), accumulatedReasoning.Len(),
 		map[string]int{"prompt": streamUsage.prompt, "completion": streamUsage.completion, "total": streamUsage.total})
 
@@ -958,6 +991,31 @@ func translateStream(w http.ResponseWriter, resp *http.Response, flusher http.Fl
 				},
 			},
 		})
+	} else if len(toolCalls) == 0 {
+		// 纯推理模型无实际 content 时，输出空 message（对齐 codex-relay）
+		writeEvent("response.output_item.added", map[string]any{
+			"output_index": 0,
+			"item": map[string]any{
+				"id":      msgItemID,
+				"type":    "message",
+				"role":    "assistant",
+				"status":  "in_progress",
+				"content": []any{},
+			},
+		})
+		writeEvent("response.output_item.done", map[string]any{
+			"output_index": 0,
+			"item": map[string]any{
+				"type":   "message",
+				"id":     msgItemID,
+				"role":   "assistant",
+				"status": "completed",
+				"content": []map[string]any{
+					{"type": "output_text", "text": ""},
+				},
+			},
+		})
+		emittedMessageItem = true
 	}
 
 	// Function call items
@@ -1086,7 +1144,7 @@ func translateStream(w http.ResponseWriter, resp *http.Response, flusher http.Fl
 
 	// Build output array for response.completed
 	var outputItems []map[string]any
-	if emittedMessageItem || len(toolCalls) == 0 {
+	if emittedMessageItem {
 		outputItems = append(outputItems, map[string]any{
 			"type":   "message",
 			"id":     msgItemID,
@@ -1171,7 +1229,7 @@ func synthesizeResponsesSSE(w http.ResponseWriter, respBody []byte, flusher http
 	seq := 0
 	writeEvent := func(eventType string, data map[string]any) {
 		seq++
-		fieldsJSON, _ := json.Marshal(data)
+		fieldsJSON, _ := jsonMarshalSafe(data)
 		b := make([]byte, 0, len(fieldsJSON)+len(eventType)+12)
 		b = append(b, `{"type":"`...)
 		b = append(b, eventType...)
@@ -1199,6 +1257,7 @@ func synthesizeResponsesSSE(w http.ResponseWriter, respBody []byte, flusher http
 		if canFlush {
 			flusher.Flush()
 		}
+
 		return
 	}
 
@@ -1312,7 +1371,27 @@ type tryProviderResult struct {
 	TotalTokens      int
 }
 
-func tryProvider(w http.ResponseWriter, r *http.Request, upstreamURL string, body []byte, provider *config.Provider, canFallback bool, convertToResponses bool, sessions *SessionStore, requestModel string, requestMessages []map[string]any) tryProviderResult {
+// sendResponseCreated emits a response.created SSE event.
+// Matches codex-relay: sent BEFORE upstream request so Codex knows the request was accepted.
+func sendResponseCreated(w http.ResponseWriter, responseID, requestModel string, writeMu *sync.Mutex) {
+	data, _ := jsonMarshalSafe(map[string]any{
+		"type": "response.created",
+		"response": map[string]any{
+			"id":     responseID,
+			"status": "in_progress",
+			"model":  requestModel,
+		},
+	})
+	writeMu.Lock()
+	fmt.Fprintf(w, "event: response.created\ndata: %s\n\n", data)
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+	writeMu.Unlock()
+}
+
+func tryProvider(w http.ResponseWriter, r *http.Request, upstreamURL string, body []byte, provider *config.Provider, canFallback bool, convertToResponses bool, sessions *SessionStore, requestModel string, requestMessages []map[string]any, debug *atomic.Bool) tryProviderResult {
+	var writeMu sync.Mutex
 	var reqBody io.Reader
 	if len(body) > 0 {
 		reqBody = bytes.NewReader(body)
@@ -1325,18 +1404,65 @@ func tryProvider(w http.ResponseWriter, r *http.Request, upstreamURL string, bod
 
 	req.Header = r.Header.Clone()
 	req.Header.Set("Authorization", "Bearer "+provider.APIKey)
-	if isStreamingRequest(body) {
+	isStream := isStreamingRequest(body)
+	if isStream {
 		req.Header.Set("Accept", "text/event-stream")
 	}
 
-	upResp, err := http.DefaultClient.Do(req)
+	// For streaming chat-compat: send response.created + start keep-alive BEFORE upstream request.
+	// Matches codex-relay: Sse::new(event_stream).keep_alive(KeepAlive::default()) wraps the entire stream
+	// including the upstream request wait time.
+	var preResponseID string
+	var keepAliveDone chan struct{}
+	if isStream && convertToResponses {
+		preResponseID = sessions.NewID()
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("X-Accel-Buffering", "no")
+		w.WriteHeader(http.StatusOK)
+		sendResponseCreated(w, preResponseID, requestModel, &writeMu)
+
+		// Start keep-alive immediately after response.created (matching axum KeepAlive::default() = 15s)
+		keepAliveDone = make(chan struct{})
+		go func() {
+			ticker := time.NewTicker(15 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-keepAliveDone:
+					return
+				case <-ticker.C:
+					writeMu.Lock()
+					fmt.Fprintf(w, ": keep-alive\n\n")
+					if f, ok := w.(http.Flusher); ok {
+						f.Flush()
+					}
+					writeMu.Unlock()
+				}
+			}
+		}()
+	}
+
+	// 创建自定义 http.Client，不设置响应头超时（深度思考可能需要很长时间）
+	// 由请求 context 控制取消，避免上游长时间思考时连接被断开
+	client := &http.Client{
+		Transport: &http.Transport{},
+	}
+	upResp, err := client.Do(req)
 	if err != nil {
+		if keepAliveDone != nil {
+			close(keepAliveDone)
+		}
 		return tryProviderResult{Error: fmt.Sprintf("upstream error: %v", err)}
 	}
 	defer upResp.Body.Close()
 
-	if isStreamingRequest(body) {
-		p, c, t := forwardStream(w, upResp, convertToResponses, sessions, requestModel, requestMessages)
+	if isStream {
+		p, c, t := forwardStream(r.Context(), w, upResp, convertToResponses, sessions, requestModel, requestMessages, preResponseID, keepAliveDone, &writeMu, debug)
+		if keepAliveDone != nil {
+			close(keepAliveDone)
+		}
 		return tryProviderResult{StatusCode: upResp.StatusCode, PromptTokens: p, CompletionTokens: c, TotalTokens: t}
 	}
 
@@ -1347,8 +1473,13 @@ func tryProvider(w http.ResponseWriter, r *http.Request, upstreamURL string, bod
 	}
 
 	if convertToResponses {
-		requestModel := extractModel(body)
-		responseID := sessions.NewID()
+		if requestModel == "" {
+			requestModel = extractModel(body)
+		}
+		responseID := preResponseID
+		if responseID == "" {
+			responseID = sessions.NewID()
+		}
 		respBody, _ = fromChatResponse(respBody, responseID, requestModel, sessions)
 		w.Header().Set("Content-Type", "application/json")
 	}
@@ -1368,7 +1499,7 @@ func tryProvider(w http.ResponseWriter, r *http.Request, upstreamURL string, bod
 }
 
 // forwardStream forwards the upstream SSE response, optionally converting to Responses API format.
-func forwardStream(w http.ResponseWriter, resp *http.Response, convert bool, sessions *SessionStore, requestModel string, requestMessages []map[string]any) (promptTokens, completionTokens, totalTokens int) {
+func forwardStream(ctx context.Context, w http.ResponseWriter, resp *http.Response, convert bool, sessions *SessionStore, requestModel string, requestMessages []map[string]any, preResponseID string, keepAliveDone chan struct{}, writeMu *sync.Mutex, debug *atomic.Bool) (promptTokens, completionTokens, totalTokens int) {
 	flusher, canFlush := w.(http.Flusher)
 
 	if convert {
@@ -1380,7 +1511,10 @@ func forwardStream(w http.ResponseWriter, resp *http.Response, convert bool, ses
 			if model == "" {
 				model = "unknown"
 			}
-			responseID := sessions.NewID()
+			responseID := preResponseID
+	if responseID == "" {
+		responseID = sessions.NewID()
+	}
 			convertedBody, _ := fromChatResponse(respBody, responseID, model, sessions)
 			p, c, t := synthesizeResponsesSSE(w, convertedBody, flusher, canFlush, model, sessions)
 			return p, c, t
@@ -1390,7 +1524,7 @@ func forwardStream(w http.ResponseWriter, resp *http.Response, convert bool, ses
 		if model == "" {
 			model = "unknown"
 		}
-		p, c, t := translateStream(w, resp, flusher, canFlush, model, sessions, requestMessages)
+		p, c, t := translateStream(ctx, w, resp, flusher, canFlush, model, sessions, requestMessages, preResponseID, keepAliveDone, writeMu, debug)
 		return p, c, t
 	}
 
@@ -1404,16 +1538,52 @@ func forwardStream(w http.ResponseWriter, resp *http.Response, convert bool, ses
 	}
 	w.WriteHeader(resp.StatusCode)
 
+	// 启动 keep-alive，避免深度思考时客户端因长时间无数据而断开
+	var passthroughKeepAliveDone chan struct{}
+	if canFlush {
+		passthroughKeepAliveDone = make(chan struct{})
+		go func() {
+			ticker := time.NewTicker(15 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-passthroughKeepAliveDone:
+					return
+				case <-ticker.C:
+					writeMu.Lock()
+					fmt.Fprintf(w, ": keep-alive\n\n")
+					flusher.Flush()
+					writeMu.Unlock()
+				}
+			}
+		}()
+	}
+
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(nil, 500*1024*1024)
+
+	// 监听客户端断开信号
+	go func() {
+		<-ctx.Done()
+		resp.Body.Close()
+	}()
+
 	for scanner.Scan() {
 		line := scanner.Text()
+		writeMu.Lock()
 		fmt.Fprintf(w, "%s\n", line)
 		if line == "" {
 			if canFlush {
 				flusher.Flush()
 			}
 		}
+		writeMu.Unlock()
+	}
+	if err := scanner.Err(); err != nil {
+		log.Printf("proxy: passthrough scanner error: %v", err)
+	}
+	if passthroughKeepAliveDone != nil {
+		close(passthroughKeepAliveDone)
 	}
 	if canFlush {
 		flusher.Flush()
@@ -1687,7 +1857,7 @@ func convertTools(tools []any) []any {
 	return result
 }
 
-func transformBody(body []byte, provider *config.Provider) []byte {
+func transformBody(body []byte, provider *config.Provider, debug *atomic.Bool) []byte {
 	if len(body) == 0 {
 		return body
 	}
@@ -1715,7 +1885,7 @@ func transformBody(body []byte, provider *config.Provider) []byte {
 	if newModel == "" || newModel == currentModel {
 		return body
 	}
-	log.Printf("proxy: model transform %q -> %q (provider: %s)", currentModel, newModel, provider.Name)
+	debugLog(debug, "proxy: model transform %q -> %q (provider: %s)", currentModel, newModel, provider.Name)
 	m["model"] = newModel
 	out, err := json.Marshal(m)
 	if err != nil {

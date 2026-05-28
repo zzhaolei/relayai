@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, h, nextTick } from 'vue'
 import { useAppMessage } from '../composables/useMessage'
 import { useAppStore, CLI_TYPES } from '../stores/app'
 import type { CLITypeMeta, CLIType } from '../stores/app'
@@ -22,7 +22,6 @@ const statusType = computed(() => {
 })
 
 const showConfigModal = ref(false)
-const selectedEndpoint = ref<CLITypeMeta & { url: string } | null>(null)
 const showFullKey = ref(false)
 
 const proxyEndpoints = computed(() => {
@@ -43,11 +42,41 @@ const proxyEndpoints = computed(() => {
     }))
 })
 
-const apiKey = computed(() => {
-  const providers = store.providers
-  if (providers.length === 0) return ''
-  return providers[0].api_key || ''
-})
+const tableData = computed(() => proxyEndpoints.value.map(ep => ({
+  key: ep.key,
+  cli: ep.label,
+  url: ep.url,
+})))
+
+const tableColumns = [
+  {
+    title: 'CLI',
+    key: 'cli',
+    width: 100,
+    render: (row: { key: string; cli: string }) => {
+      return h('div', { style: 'display: flex; align-items: center; gap: 6px' }, [
+        h(CLIIcon, { type: row.key as CLIType, size: 16 }),
+        h('span', { style: 'font-weight: 500' }, row.cli),
+      ])
+    },
+  },
+  {
+    title: 'Base URL',
+    key: 'url',
+    render: (row: { key: string; url: string }) => {
+      return h('div', { style: 'display: flex; align-items: center; gap: 6px' }, [
+        h('code', { style: 'font-size: 12px; word-break: break-all; flex: 1' }, row.url),
+        h('button', {
+          style: 'background: none; border: none; cursor: pointer; color: #666; padding: 2px; display: flex; align-items: center;',
+          onClick: () => handleCopyToClipboard(row.url),
+          title: '复制',
+        }, h('svg', { xmlns: 'http://www.w3.org/2000/svg', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', width: '14', height: '14', innerHTML: '<path d="M20 8H10c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2Z"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>' })),
+      ])
+    },
+  },
+]
+
+const apiKey = computed(() => store.proxyStatus.proxy_auth_token || '')
 
 const maskedKey = computed(() => maskKey(apiKey.value))
 
@@ -86,16 +115,20 @@ async function handleWriteCLI(cliType: string) {
   }
 }
 
-function showConfig(ep: CLITypeMeta & { url: string }) {
-  selectedEndpoint.value = ep
+function showConfig() {
   showFullKey.value = false
   showConfigModal.value = true
+  // 移除按钮焦点，避免关闭弹窗后按钮仍有高亮
+  nextTick(() => {
+    document.activeElement instanceof HTMLElement && document.activeElement.blur()
+  })
 }
 
 async function copyConfig() {
-  if (!selectedEndpoint.value) return
-  const text = `Base URL: ${selectedEndpoint.value.url}\nAPI Key: ${apiKey.value}`
-  await handleCopyToClipboard(text)
+  if (proxyEndpoints.value.length === 0) return
+  const lines = proxyEndpoints.value.map(ep => `${ep.label} Base URL: ${ep.url}`)
+  lines.push(`API Key: ${apiKey.value}`)
+  await handleCopyToClipboard(lines.join('\n'))
 }
 </script>
 
@@ -108,6 +141,10 @@ async function copyConfig() {
         <n-tag :type="statusType" size="small" style="min-width: 48px; text-align: center">{{ statusText }}</n-tag>
       </div>
       <div style="display: flex; align-items: center; gap: 8px">
+        <n-button type="default" size="tiny" @mousedown.prevent @click="showConfig()">
+          <template #icon><n-icon><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></n-icon></template>
+          查看配置
+        </n-button>
         <n-button
           secondary
           type="warning"
@@ -117,6 +154,14 @@ async function copyConfig() {
           class="restart-btn"
           @click="handleRestart"
         >
+          <template #icon>
+            <n-icon>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                <path d="M1 4v6h6M23 20v-6h-6"/>
+                <path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"/>
+              </svg>
+            </n-icon>
+          </template>
           重启服务
         </n-button>
         <n-switch
@@ -132,24 +177,23 @@ async function copyConfig() {
         v-for="ep in proxyEndpoints"
         :key="ep.key"
         size="small"
-        style="width: 140px"
+        style="width: 164px; cursor: default"
         hoverable
       >
-        <div style="display: flex; flex-direction: column; gap: 6px">
+        <div style="display: flex; align-items: center; justify-content: space-between">
           <div style="display: flex; align-items: center; gap: 6px">
             <CLIIcon :type="ep.key as CLIType" :size="14" />
             <span style="font-weight: 500">{{ ep.label }}</span>
           </div>
-          <div style="display: flex; justify-content: flex-end; gap: 4px">
-            <n-button quaternary size="tiny" @click="showConfig(ep)">
-              <template #icon><n-icon><svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/><path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd"/></svg></n-icon></template>
-              查看
-            </n-button>
-            <n-button type="primary" size="tiny" @click="handleWriteCLI(ep.key)">
-              <template #icon><n-icon><svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z"/></svg></n-icon></template>
-              写入
-            </n-button>
-          </div>
+          <n-button
+            type="primary"
+            size="tiny"
+            class="cli-write-btn"
+            @mousedown.prevent @click="handleWriteCLI(ep.key)"
+          >
+            <template #icon><n-icon><svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z"/></svg></n-icon></template>
+            写入
+          </n-button>
         </div>
       </n-card>
     </div>
@@ -157,20 +201,17 @@ async function copyConfig() {
     <n-modal
       :show="showConfigModal"
       @update:show="(v: boolean) => showConfigModal = v"
-      :title="selectedEndpoint?.label + ' 查看'"
+      title="查看配置"
       preset="card"
-      style="width: 400px"
+      style="width: 500px"
     >
-      <div v-if="selectedEndpoint" style="display: flex; flex-direction: column; gap: 16px">
-        <div>
-          <n-text depth="3" style="font-size: 12px; font-weight: 500">Base URL</n-text>
-          <n-card size="small" style="margin-top: 4px">
-            <div style="display: flex; align-items: center; gap: 8px">
-              <n-text code style="flex: 1; word-break: break-all">{{ selectedEndpoint.url }}</n-text>
-              <n-button text size="tiny" @click="handleCopyToClipboard(selectedEndpoint!.url)">复制</n-button>
-            </div>
-          </n-card>
-        </div>
+      <div style="display: flex; flex-direction: column; gap: 16px">
+        <n-data-table
+          :columns="tableColumns"
+          :data="tableData"
+          :bordered="false"
+          size="small"
+        />
         <div>
           <n-text depth="3" style="font-size: 12px; font-weight: 500">API Key</n-text>
           <n-card size="small" style="margin-top: 4px">
@@ -236,6 +277,17 @@ async function copyConfig() {
   0%, 100% { box-shadow: 0 0 0 0 rgba(24, 160, 88, 0.4); }
   50% { box-shadow: 0 0 0 6px rgba(24, 160, 88, 0); }
 }
+.cli-write-btn {
+  border-radius: 4px;
+  height: 24px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+
+
+
+
 @keyframes pulse-yellow {
   0%, 100% { box-shadow: 0 0 0 0 rgba(240, 160, 32, 0.4); }
   50% { box-shadow: 0 0 0 6px rgba(240, 160, 32, 0); }

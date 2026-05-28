@@ -96,6 +96,16 @@ func EnableCodexProvider(baseURL, apiKey string) error {
 
 	m["model_providers"] = providers
 
+	// Set recommended Codex options
+	m["model_reasoning_effort"] = "xhigh"
+
+	features, _ := m["features"].(map[string]interface{})
+	if features == nil {
+		features = make(map[string]interface{})
+	}
+	features["goals"] = true
+	m["features"] = features
+
 	if err := WriteCodexConfig(m); err != nil {
 		return err
 	}

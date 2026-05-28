@@ -4,7 +4,7 @@ import { useAppMessage } from '../composables/useMessage'
 import { useAppStore } from '../stores/app'
 import type { CLIType } from '../stores/app'
 import CLIIcon from './CLIIcon.vue'
-import { copyToClipboard, formatDuration } from '../utils'
+import { copyToClipboard, formatDuration, formatTokens } from '../utils'
 
 const props = defineProps<{ active: boolean }>()
 
@@ -76,7 +76,7 @@ watch(() => props.active, (val) => {
       <div style="display: flex; align-items: center; gap: 8px">
         <n-text strong style="font-size: 16px">请求日志</n-text>
         <n-text depth="3" style="font-size: 12px">({{ store.logsSizeKB }} KB)</n-text>
-        <n-text v-if="store.totalTokens > 0" depth="3" style="font-size: 12px">· {{ store.totalTokens }} tokens</n-text>
+        <n-text v-if="store.totalTokens > 0" depth="3" style="font-size: 12px">· {{ formatTokens(store.totalTokens) }} tokens</n-text>
       </div>
       <div style="display: flex; gap: 8px">
         <n-button size="tiny" :type="autoRefresh ? 'primary' : 'default'" @click="toggleAutoRefresh">
@@ -105,26 +105,36 @@ watch(() => props.active, (val) => {
         }"
       >
         <div style="display: flex; flex-direction: column; gap: 4px">
-          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: nowrap">
-            <n-text depth="3" style="font-size: 12px; font-family: monospace; flex-shrink: 0">
+          <div class="log-row">
+            <n-text depth="3" class="log-col log-time">
               {{ formatTime(log.time) }}
             </n-text>
-            <n-tag :type="statusType(log.status_code)" size="small">{{ log.status_code }}</n-tag>
-            <n-tag size="small" type="info">{{ log.method }}</n-tag>
-            <n-text code style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; font-size: 12px">
-              {{ log.path }}
+            <n-tag :type="statusType(log.status_code)" size="small" class="log-col log-status">{{ log.status_code }}</n-tag>
+            <n-tag size="small" type="info" class="log-col log-method">{{ log.method }}</n-tag>
+            <n-tooltip trigger="hover" placement="top">
+              <template #trigger>
+                <n-text code class="log-col log-path">
+                  {{ log.path }}
+                </n-text>
+              </template>
+              <div style="max-width: 500px; word-break: break-all">{{ log.path }}</div>
+            </n-tooltip>
+            <n-tag v-if="log.model" size="small" class="log-col log-model">{{ log.model }}</n-tag>
+            <div v-else class="log-col log-model"></div>
+            <n-text v-if="log.total_tokens > 0" depth="3" class="log-col log-tokens">
+              入{{ formatTokens(log.prompt_tokens) }} 出{{ formatTokens(log.completion_tokens) }} 共{{ formatTokens(log.total_tokens) }}
             </n-text>
-            <n-tag v-if="log.model" size="small" style="flex-shrink: 0">{{ log.model }}</n-tag>
-            <n-text v-if="log.total_tokens > 0" depth="3" style="font-size: 11px; font-family: monospace; flex-shrink: 0">
-              入{{ log.prompt_tokens }} 出{{ log.completion_tokens }} 共{{ log.total_tokens }}
-            </n-text>
-            <n-text depth="3" style="font-size: 12px; font-family: monospace; flex-shrink: 0">
+            <div v-else class="log-col log-tokens"></div>
+            <n-text depth="3" class="log-col log-duration">
               {{ formatDuration(log.duration_ms) }}
             </n-text>
-            <CLIIcon v-if="log.cli_type" :type="log.cli_type as CLIType" :size="12" />
-            <n-text v-if="log.provider" depth="3" style="font-size: 12px; flex-shrink: 0">
+            <div class="log-col log-cli">
+              <CLIIcon v-if="log.cli_type" :type="log.cli_type as CLIType" :size="12" />
+            </div>
+            <n-text v-if="log.provider" depth="3" class="log-col log-provider">
               {{ log.provider }}
             </n-text>
+            <div v-else class="log-col log-provider"></div>
           </div>
 
           <n-card v-if="log.error" size="small" :bordered="false" style="background: var(--app-fill-1)">
@@ -142,3 +152,77 @@ watch(() => props.active, (val) => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.log-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
+.log-col {
+  flex-shrink: 0;
+}
+
+.log-time {
+  width: 70px;
+  font-size: 12px;
+  font-family: monospace;
+}
+
+.log-status {
+  width: 42px;
+  text-align: center;
+}
+
+.log-method {
+  width: 48px;
+  text-align: center;
+}
+
+.log-path {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.log-model {
+  width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-tokens {
+  width: 160px;
+  font-size: 11px;
+  font-family: monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-duration {
+  width: 60px;
+  font-size: 12px;
+  font-family: monospace;
+  text-align: right;
+}
+
+.log-cli {
+  width: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.log-provider {
+  width: 80px;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+</style>

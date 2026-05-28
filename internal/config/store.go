@@ -56,10 +56,36 @@ func (s *Store) getPort() int {
 	return port
 }
 
+// GetDebugMode returns whether debug logging is enabled.
+func (s *Store) GetDebugMode() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var debug bool
+	err := s.db.QueryRow("SELECT value FROM settings WHERE key = 'debug'").Scan(&debug)
+	if err != nil {
+		return false
+	}
+	return debug
+}
+
 func (s *Store) GetPort() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.getPort()
+}
+
+// GetProxyAuthToken 获取代理级 auth token，不存在则自动生成
+func (s *Store) GetProxyAuthToken() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var token string
+	err := s.db.QueryRow("SELECT value FROM settings WHERE key = 'proxy_auth_token'").Scan(&token)
+	if err == sql.ErrNoRows {
+		token = generateAuthToken()
+		s.db.Exec("INSERT INTO settings (key, value) VALUES ('proxy_auth_token', ?)", token)
+	}
+	return token
 }
 
 func (s *Store) SetPort(port int) error {
@@ -202,4 +228,16 @@ func scanProviders(rows *sql.Rows) []Provider {
 		providers = append(providers, p)
 	}
 	return providers
+}
+
+// SetDebugMode enables or disables debug logging.
+func (s *Store) SetDebugMode(enabled bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	val := "false"
+	if enabled {
+		val = "true"
+	}
+	_, err := s.db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('debug_mode', ?)", val)
+	return err
 }

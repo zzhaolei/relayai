@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"sync/atomic"
 
 	"relay-ai/internal/config"
 )
@@ -24,15 +25,18 @@ type Server struct {
 	store      *config.Store
 	logger     *Logger
 	sessions   *SessionStore
+	debug      atomic.Bool
 }
 
 func New(store *config.Store, db *sql.DB) *Server {
-	return &Server{
+	s := &Server{
 		store:    store,
 		port:     store.GetPort(),
 		logger:   NewLogger(db),
 		sessions: NewSessionStore(),
 	}
+	s.debug.Store(store.GetDebugMode())
+	return s
 }
 
 func (s *Server) Start() error {
@@ -45,11 +49,12 @@ func (s *Server) Start() error {
 
 	s.port = s.store.GetPort()
 	addr := fmt.Sprintf("127.0.0.1:%d", s.port)
-	handler := newRouter(s.store, s.logger, s.sessions)
+	handler := newRouter(s.store, s.logger, s.sessions, &s.debug)
 
 	s.httpServer = &http.Server{
-		Addr:    addr,
-		Handler: handler,
+		Addr:         addr,
+		Handler:      handler,
+		WriteTimeout: 0, // 无写超时，支持长时间流式响应（深度思考）
 	}
 
 	go func() {
@@ -120,4 +125,14 @@ func (s *Server) GetTotalTokenUsage() (int64, int64, int64) {
 
 func (s *Server) GetLogsSizeKB() int64 {
 	return s.logger.GetSizeKB()
+}
+
+// SetDebug enables or disables debug logging.
+func (s *Server) SetDebug(enabled bool) {
+	s.debug.Store(enabled)
+}
+
+// IsDebug returns whether debug logging is enabled.
+func (s *Server) IsDebug() bool {
+	return s.debug.Load()
 }

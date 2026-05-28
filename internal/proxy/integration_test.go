@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -82,7 +84,7 @@ func integrationTestWithTransport(t *testing.T, upstreamChunks []string, respons
 		if requestModel == "" {
 			requestModel = "gpt-4o"
 		}
-		translateStream(w, upResp, flusher, canFlush, requestModel, sessions, requestMessages)
+		translateStream(r.Context(), w, upResp, flusher, canFlush, requestModel, sessions, requestMessages, "", nil, new(sync.Mutex), new(atomic.Bool))
 	})
 
 	// Use httptest.NewUnstartedServer with a custom listener to avoid port bind

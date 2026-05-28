@@ -26,12 +26,13 @@ export interface Provider {
   usage_updated_at: number
 }
 
-type ProviderPayload = Omit<Provider, 'id' | 'created_at' | 'enabled' | 'prompt_tokens' | 'completion_tokens' | 'total_tokens' | 'usage_updated_at' | 'auth_token'>
+type ProviderPayload = Omit<Provider, 'id' | 'created_at' | 'enabled' | 'prompt_tokens' | 'completion_tokens' | 'total_tokens' | 'usage_updated_at' >
 
 export interface ProxyStatus {
   running: boolean
   port: number
   addr: string
+  proxy_auth_token: string
 }
 
 export interface RequestLog {
@@ -80,7 +81,7 @@ export const CLI_TYPES: CLITypeMeta[] = [
 
 export const useAppStore = defineStore('app', () => {
   const providers = ref<Provider[]>([])
-  const proxyStatus = ref<ProxyStatus>({ running: false, port: 18900, addr: '' })
+  const proxyStatus = ref<ProxyStatus>({ running: false, port: 18900, addr: '', proxy_auth_token: '' })
   const logs = ref<RequestLog[]>([])
   const providerUsageStats = ref<ProviderUsageStats[]>([])
   const logsSizeKB = ref(0)

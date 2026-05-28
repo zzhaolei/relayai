@@ -2,12 +2,15 @@ package proxy
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -673,7 +676,7 @@ func TestConvertStreamSSE_PureText(t *testing.T) {
 	}
 	resp := buildSSEResponse(chunks)
 	rec := httptest.NewRecorder()
-	p, c, total := translateStream(rec, resp, rec, true, "gpt-4o", NewSessionStore(), nil)
+	p, c, total := translateStream(context.Background(), rec, resp, rec, true, "gpt-4o", NewSessionStore(), nil, "", nil, new(sync.Mutex), new(atomic.Bool))
 
 	_ = p
 	_ = c
@@ -719,7 +722,7 @@ func TestConvertStreamSSE_Reasoning(t *testing.T) {
 	}
 	resp := buildSSEResponse(chunks)
 	rec := httptest.NewRecorder()
-	translateStream(rec, resp, rec, true, "gpt-4o", NewSessionStore(), nil)
+	translateStream(context.Background(), rec, resp, rec, true, "gpt-4o", NewSessionStore(), nil, "", nil, new(sync.Mutex), new(atomic.Bool))
 
 	events := captureSSEOutput(rec)
 	hasReasoningDelta := false
@@ -756,7 +759,7 @@ func TestConvertStreamSSE_ToolCalls(t *testing.T) {
 	}
 	resp := buildSSEResponse(chunks)
 	rec := httptest.NewRecorder()
-	translateStream(rec, resp, rec, true, "gpt-4o", NewSessionStore(), nil)
+	translateStream(context.Background(), rec, resp, rec, true, "gpt-4o", NewSessionStore(), nil, "", nil, new(sync.Mutex), new(atomic.Bool))
 
 	events := captureSSEOutput(rec)
 	hasFuncCall := false
@@ -777,7 +780,7 @@ func TestConvertStreamSSE_Incomplete(t *testing.T) {
 	}
 	resp := buildSSEResponse(chunks)
 	rec := httptest.NewRecorder()
-	translateStream(rec, resp, rec, true, "gpt-4o", NewSessionStore(), nil)
+	translateStream(context.Background(), rec, resp, rec, true, "gpt-4o", NewSessionStore(), nil, "", nil, new(sync.Mutex), new(atomic.Bool))
 
 	events := captureSSEOutput(rec)
 	hasIncomplete := false
@@ -807,7 +810,7 @@ func TestConvertStreamSSE_ReasoningOnly(t *testing.T) {
 	}
 	resp := buildSSEResponse(chunks)
 	rec := httptest.NewRecorder()
-	translateStream(rec, resp, rec, true, "gpt-4o", NewSessionStore(), nil)
+	translateStream(context.Background(), rec, resp, rec, true, "gpt-4o", NewSessionStore(), nil, "", nil, new(sync.Mutex), new(atomic.Bool))
 
 	events := captureSSEOutput(rec)
 
@@ -845,7 +848,7 @@ func TestConvertStreamSSE_EmptyStream(t *testing.T) {
 	}
 	resp := buildSSEResponse(chunks)
 	rec := httptest.NewRecorder()
-	p, c, total := translateStream(rec, resp, rec, true, "gpt-4o", NewSessionStore(), nil)
+	p, c, total := translateStream(context.Background(), rec, resp, rec, true, "gpt-4o", NewSessionStore(), nil, "", nil, new(sync.Mutex), new(atomic.Bool))
 
 	if p != 0 || c != 0 || total != 0 {
 		t.Errorf("expected zero tokens for empty stream, got p=%d c=%d t=%d", p, c, total)

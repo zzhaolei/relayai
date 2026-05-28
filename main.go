@@ -3,11 +3,13 @@ package main
 import (
 	"embed"
 	"fmt"
+	"os"
 	"log"
 	"runtime"
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"relay-ai/internal/singleinstance"
 	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
@@ -18,6 +20,13 @@ var assets embed.FS
 var appIcon []byte
 
 func main() {
+	unlock, err := singleinstance.LockFile()
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer unlock()
+
 	app := NewApp()
 
 	a := application.New(application.Options{
@@ -129,7 +138,7 @@ func main() {
 		log.Printf("failed to start proxy: %v", err)
 	}
 
-	err := a.Run()
+	err = a.Run()
 	if err != nil {
 		log.Fatal(err)
 	}

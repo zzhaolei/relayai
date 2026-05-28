@@ -24,7 +24,6 @@ const emit = defineEmits<{
 }>()
 
 const message = useAppMessage()
-const cliOptions = CLI_TYPES.map(t => ({ label: t.label, value: t.key }))
 
 const form = ref({
   name: '',
@@ -61,6 +60,10 @@ watch(() => form.value.cli_type, (val) => {
     form.value.chat_compat_mode = false
   }
 })
+
+function selectCli(key: CLIType) {
+  form.value.cli_type = key
+}
 
 function addMapping() {
   mappings.value.push({ from: '', to: '' })
@@ -128,16 +131,18 @@ function handleCancel() {
   >
     <n-form label-placement="top">
       <n-form-item label="支持的 CLI 平台" required>
-        <n-radio-group v-model:value="form.cli_type">
-          <n-space>
-            <n-radio-button v-for="opt in cliOptions" :key="opt.value" :value="opt.value">
-              <div style="display: inline-flex; align-items: center; gap: 6px">
-                <CLIIcon :type="opt.value as CLIType" :size="14" />
-                <span>{{ opt.label }}</span>
-              </div>
-            </n-radio-button>
-          </n-space>
-        </n-radio-group>
+        <div class="cli-options">
+          <div
+            v-for="opt in CLI_TYPES"
+            :key="opt.key"
+            class="cli-option"
+            :class="{ selected: form.cli_type === opt.key }"
+            @click="selectCli(opt.key)"
+          >
+            <CLIIcon :type="opt.key" :size="14" />
+            <span>{{ opt.label }}</span>
+          </div>
+        </div>
         <template #feedback>选择该提供商支持的 CLI 平台，代理会根据请求类型路由到对应提供商</template>
       </n-form-item>
 
@@ -190,3 +195,40 @@ function handleCancel() {
     </template>
   </n-modal>
 </template>
+
+<style scoped>
+.cli-options {
+  display: flex;
+  gap: 8px;
+}
+
+.cli-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--n-border-color, #e0e0e6);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--n-text-color-2, #666);
+  background: transparent;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.cli-option:hover {
+  border-color: var(--n-primary-color-hover, #63e2b7);
+  color: var(--n-text-color, #333);
+}
+
+.cli-option.selected {
+  border-color: var(--n-primary-color, #18a058);
+  background: var(--n-primary-color-suppl, rgba(24, 160, 88, 0.1));
+  color: var(--n-primary-color, #18a058);
+}
+
+:deep(.n-form-item-feedback__line) {
+  font-size: 11px;
+}
+</style>

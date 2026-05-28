@@ -75,8 +75,8 @@ function formatTokens(value?: number) {
         <n-text strong style="font-size: 15px">{{ provider.name }}</n-text>
       </div>
       <div style="display: flex; gap: 4px">
-        <n-button quaternary size="small" @click="emit('view', provider)">更多</n-button>
-        <n-button type="success" size="small" @click="emit('edit', provider)">编辑</n-button>
+        <n-button quaternary size="small" @mousedown.prevent @click="emit('view', provider)">更多</n-button>
+        <n-button type="success" size="small" @mousedown.prevent @click="emit('edit', provider)">编辑</n-button>
         <n-popconfirm positive-text="确认" negative-text="取消" @positive-click="emit('delete', provider.id)">
           <template #trigger>
             <n-button quaternary type="error" size="small">
@@ -103,3 +103,6 @@ function formatTokens(value?: number) {
     </div>
   </n-card>
 </template>
+
+<style scoped>
+</style>
