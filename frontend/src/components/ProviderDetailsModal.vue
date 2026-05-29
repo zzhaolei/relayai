@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import type { Provider, ProviderUsagePoint, CLIType } from '../stores/app'
 import { CLI_TYPES, useAppStore } from '../stores/app'
 import CLIIcon from './CLIIcon.vue'
-import { maskKey } from '../utils'
+import { maskKey, formatTokens } from '../utils'
 
 const props = defineProps<{
   visible: boolean
@@ -20,6 +20,11 @@ const loadingSeries = ref(false)
 const hoverIndex = ref(-1)
 const hoverX = ref(0)
 const hoverY = ref(0)
+const mouseX = ref(0)
+const mouseY = ref(0)
+const showPrompt = ref(true)
+const showCompletion = ref(true)
+const showTotal = ref(true)
 
 const cliLabels: Record<string, string> = Object.fromEntries(
   CLI_TYPES.map(t => [t.key, t.label])
@@ -43,6 +48,9 @@ watch(
       usageSeries.value = []
       return
     }
+    showPrompt.value = true
+    showCompletion.value = true
+    showTotal.value = true
     loadingSeries.value = true
     try {
       usageSeries.value = await store.fetchProviderUsageSeries(props.provider.id)
@@ -61,9 +69,6 @@ function handleVisibleChange(val: boolean) {
   if (!val) close()
 }
 
-function formatTokens(value?: number) {
-  return new Intl.NumberFormat('zh-CN').format(value || 0)
-}
 
 function formatDate(value?: number) {
   if (!value) return '暂无'
@@ -76,32 +81,35 @@ function formatDateShort(value?: number) {
   return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
 }
 
+function formatChartValue(value: number): string {
+  if (value >= 1_000_000) return (value / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'm'
+  if (value >= 1_000) return (value / 1_000).toFixed(1).replace(/\.0$/, '') + 'k'
+  return value.toString()
+}
+
 function buildChart(points: ProviderUsagePoint[]) {
   const width = 640
-  const height = 220
-  const padding = { top: 18, right: 24, bottom: 30, left: 46 }
+  const height = 240
+  const padding = { top: 18, right: 24, bottom: 38, left: 50 }
   const innerWidth = width - padding.left - padding.right
   const innerHeight = height - padding.top - padding.bottom
   const maxValue = Math.max(1, ...points.map(p => p.total_tokens || 0))
 
   const axisBottom = padding.top + innerHeight
   const axisRight = padding.left + innerWidth
-  const axisMid = padding.top + innerHeight / 2
 
   function xPos(index: number) {
-    return padding.left + (points.length <= 1 ? innerWidth : (index / (points.length - 1)) * innerWidth)
+    return padding.left + (points.length <= 1 ? innerWidth / 2 : (index / (points.length - 1)) * innerWidth)
   }
 
   function yPos(value: number) {
     return padding.top + innerHeight - (value / maxValue) * innerHeight
   }
 
-  interface Point { x: number; y: number; index: number }
-  function makePoints(key: keyof Pick<ProviderUsagePoint, 'prompt_tokens' | 'completion_tokens' | 'total_tokens'>): Point[] {
-    return points.map((p, i) => ({ x: xPos(i), y: yPos(p[key] || 0), index: i }))
-  }
+  // 总量曲线点
+  const totalPts = points.map((p, i) => ({ x: xPos(i), y: yPos(p.total_tokens || 0) }))
 
-  function smoothPath(pts: Point[]): string {
+  function smoothPath(pts: { x: number; y: number }[]): string {
     if (pts.length === 0) return ''
     if (pts.length === 1) return `M${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}`
     if (pts.length === 2) return `M${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)} L${pts[1].x.toFixed(1)},${pts[1].y.toFixed(1)}`
@@ -133,11 +141,50 @@ function buildChart(points: ProviderUsagePoint[]) {
     return d
   }
 
-  const promptPts = makePoints('prompt_tokens')
-  const completionPts = makePoints('completion_tokens')
-  const totalPts = makePoints('total_tokens')
+  // 柱状图：输入/输出叠加，高度以总量为准
+  const barWidth = points.length <= 1 ? 40 : Math.max(6, Math.min(40, innerWidth / points.length * 0.6))
 
-  // Build array of hit targets for hover detection
+  const bars = points.map((p, i) => {
+    const cx = xPos(i)
+    const totalVal = p.total_tokens || 0
+    const promptVal = p.prompt_tokens || 0
+    const completionVal = p.completion_tokens || 0
+    const totalH = totalVal / maxValue * innerHeight
+    const promptH = totalVal > 0 ? (promptVal / totalVal) * totalH : 0
+    const completionH = totalVal > 0 ? (completionVal / totalVal) * totalH : 0
+    return {
+      cx,
+      x: cx - barWidth / 2,
+      barWidth,
+      // 输出在下面
+      completionY: axisBottom - completionH,
+      completionH,
+      // 输入叠在输出上面
+      promptY: axisBottom - completionH - promptH,
+      promptH,
+    }
+  })
+
+  // X轴时间标签（取首、中、尾）
+  const xLabels: { x: number; label: string }[] = []
+  if (points.length > 0) {
+    xLabels.push({ x: xPos(0), label: formatXLabel(points[0].time) })
+    if (points.length > 2) {
+      const mid = Math.floor(points.length / 2)
+      xLabels.push({ x: xPos(mid), label: formatXLabel(points[mid].time) })
+    }
+    if (points.length > 1) {
+      xLabels.push({ x: xPos(points.length - 1), label: formatXLabel(points[points.length - 1].time) })
+    }
+  }
+
+  // Y轴刻度（4条）
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map(r => ({
+    y: axisBottom - r * innerHeight,
+    value: Math.round(maxValue * r),
+    label: formatChartValue(Math.round(maxValue * r)),
+  }))
+
   const hitTargets = points.map((p, i) => ({
     x: xPos(i),
     y: yPos(p.total_tokens || 0),
@@ -155,13 +202,19 @@ function buildChart(points: ProviderUsagePoint[]) {
     padding,
     axisBottom,
     axisRight,
-    axisMid,
     hasData: points.length > 0,
-    promptPath: smoothPath(promptPts),
-    completionPath: smoothPath(completionPts),
     totalPath: smoothPath(totalPts),
+    bars,
+    xLabels,
+    yTicks,
     hitTargets,
+    barWidth,
   }
+}
+
+function formatXLabel(time: number): string {
+  const d = new Date(time)
+  return `${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getDate().toString().padStart(2, '0')} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
 }
 
 function handleChartMouseMove(e: MouseEvent) {
@@ -181,16 +234,13 @@ function handleChartMouseMove(e: MouseEvent) {
     return
   }
 
-  // Find closest target by x distance within a threshold
-  const threshold = 30
+  // 只用 x 距离匹配最近的数据点
   let closest = -1
-  let minDist = Infinity
+  let minDx = Infinity
   for (let i = 0; i < targets.length; i++) {
     const dx = Math.abs(targets[i].x - mx)
-    const dy = Math.abs(targets[i].y - my)
-    const dist = Math.sqrt(dx * dx + dy * dy)
-    if (dist < minDist && dist < threshold) {
-      minDist = dist
+    if (dx < minDx) {
+      minDx = dx
       closest = i
     }
   }
@@ -198,6 +248,11 @@ function handleChartMouseMove(e: MouseEvent) {
   if (closest >= 0) {
     hoverX.value = targets[closest].x
     hoverY.value = targets[closest].y
+    // 使用鼠标在容器中的相对位置
+    const container = (e.currentTarget as HTMLElement)
+    const containerRect = container.getBoundingClientRect()
+    mouseX.value = e.clientX - containerRect.left
+    mouseY.value = e.clientY - containerRect.top
   }
 }
 
@@ -243,13 +298,19 @@ function handleChartMouseLeave() {
       <div style="border: 1px solid var(--app-border); border-radius: 6px; padding: 12px">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px">
           <n-text strong>用量曲线</n-text>
-          <div style="display: flex; gap: 12px; align-items: center">
-            <n-text depth="3" style="font-size: 12px">输入</n-text>
-            <span style="width: 16px; height: 2px; background: #18a058"></span>
-            <n-text depth="3" style="font-size: 12px">输出</n-text>
-            <span style="width: 16px; height: 2px; background: #2080f0"></span>
-            <n-text depth="3" style="font-size: 12px">总量</n-text>
-            <span style="width: 16px; height: 2px; background: #d03050"></span>
+          <div style="display: flex; gap: 14px; align-items: center">
+            <div style="display: flex; align-items: center; gap: 4px; cursor: pointer; user-select: none; opacity: 1" @click="showPrompt = !showPrompt" :style="{ opacity: showPrompt ? 1 : 0.35 }">
+              <span style="width: 10px; height: 10px; background: #18a058; border-radius: 2px"></span>
+              <n-text depth="3" style="font-size: 12px">输入</n-text>
+            </div>
+            <div style="display: flex; align-items: center; gap: 4px; cursor: pointer; user-select: none; opacity: 1" @click="showCompletion = !showCompletion" :style="{ opacity: showCompletion ? 1 : 0.35 }">
+              <span style="width: 10px; height: 10px; background: #f0a020; border-radius: 2px"></span>
+              <n-text depth="3" style="font-size: 12px">输出</n-text>
+            </div>
+            <div style="display: flex; align-items: center; gap: 4px; cursor: pointer; user-select: none; opacity: 1" @click="showTotal = !showTotal" :style="{ opacity: showTotal ? 1 : 0.35 }">
+              <span style="width: 16px; height: 2px; background: #d03050; border-radius: 1px"></span>
+              <n-text depth="3" style="font-size: 12px">总量</n-text>
+            </div>
           </div>
         </div>
         <n-spin :show="loadingSeries">
@@ -259,31 +320,102 @@ function handleChartMouseLeave() {
             @mousemove="handleChartMouseMove"
             @mouseleave="handleChartMouseLeave"
           >
-            <svg :viewBox="`0 0 ${chart.width} ${chart.height}`" style="width: 100%; height: 220px; display: block">
-              <!-- Axes -->
+            <svg :viewBox="`0 0 ${chart.width} ${chart.height}`" style="width: 100%; height: 240px; display: block">
+              <!-- Y轴网格线 -->
+              <line
+                v-for="(tick, i) in chart.yTicks"
+                :key="'yg'+i"
+                :x1="chart.padding.left"
+                :y1="tick.y"
+                :x2="chart.axisRight"
+                :y2="tick.y"
+                stroke="var(--app-border-2)"
+                stroke-dasharray="4 4"
+                :stroke-opacity="i === chart.yTicks.length - 1 ? 0 : 0.6"
+              />
+
+              <!-- 柱状图：输入/输出叠加 -->
+              <template v-if="chart.hasData">
+                <!-- 输出（下半部分） -->
+                <rect
+                  v-if="showCompletion"
+                  v-for="(bar, i) in chart.bars"
+                  :key="'bc'+i"
+                  :x="bar.x"
+                  :y="bar.completionY"
+                  :width="bar.barWidth"
+                  :height="bar.completionH"
+                  fill="#f0a020"
+                  rx="1"
+                />
+                <!-- 输入（上半部分，叠在输出上面） -->
+                <rect
+                  v-if="showPrompt"
+                  v-for="(bar, i) in chart.bars"
+                  :key="'bp'+i"
+                  :x="bar.x"
+                  :y="bar.promptY"
+                  :width="bar.barWidth"
+                  :height="bar.promptH"
+                  fill="#18a058"
+                  rx="1"
+                />
+              </template>
+
+              <!-- 总量曲线 -->
+              <path v-if="chart.hasData && showTotal" :d="chart.totalPath" fill="none" stroke="#d03050" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+
+              <!-- 坐标轴 -->
               <line :x1="chart.padding.left" :y1="chart.padding.top" :x2="chart.padding.left" :y2="chart.axisBottom" stroke="var(--app-border)" />
               <line :x1="chart.padding.left" :y1="chart.axisBottom" :x2="chart.axisRight" :y2="chart.axisBottom" stroke="var(--app-border)" />
-              <line :x1="chart.padding.left" :y1="chart.axisMid" :x2="chart.axisRight" :y2="chart.axisMid" stroke="var(--app-border-2)" stroke-dasharray="4 4" />
-              <text :x="chart.padding.left - 42" :y="chart.padding.top + 4" fill="currentColor" font-size="11">{{ formatTokens(chart.maxValue) }}</text>
-              <text :x="chart.padding.left - 28" :y="chart.axisBottom + 4" fill="currentColor" font-size="11">0</text>
 
-              <!-- Smooth curves -->
-              <path v-if="chart.hasData" :d="chart.promptPath" fill="none" stroke="#18a058" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-              <path v-if="chart.hasData" :d="chart.completionPath" fill="none" stroke="#2080f0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-              <path v-if="chart.hasData" :d="chart.totalPath" fill="none" stroke="#d03050" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+              <!-- Y轴标签 -->
+              <text
+                v-for="(tick, i) in chart.yTicks"
+                :key="'yl'+i"
+                :x="chart.padding.left - 8"
+                :y="tick.y + 4"
+                fill="currentColor"
+                font-size="10"
+                text-anchor="end"
+              >{{ tick.label }}</text>
+
+              <!-- X轴时间标签 -->
+              <text
+                v-for="(label, i) in chart.xLabels"
+                :key="'xl'+i"
+                :x="label.x"
+                :y="chart.axisBottom + 16"
+                fill="currentColor"
+                font-size="10"
+                text-anchor="middle"
+              >{{ label.label }}</text>
 
               <!-- Invisible hit targets for mouse hover -->
-              <circle
+              <rect
                 v-for="(t, i) in chart.hitTargets"
-                :key="i"
-                :cx="t.x"
-                :cy="t.y"
-                r="8"
+                :key="'hit'+i"
+                :x="t.x - chart.barWidth"
+                :y="chart.padding.top"
+                :width="chart.barWidth"
+                :height="chart.height - chart.padding.top - chart.padding.bottom"
                 fill="transparent"
                 stroke="none"
               />
 
-              <!-- Hover indicator dot -->
+              <!-- Hover indicator line -->
+              <line
+                v-if="hoverIndex >= 0 && chart.hasData"
+                :x1="hoverX"
+                :y1="chart.padding.top"
+                :x2="hoverX"
+                :y2="chart.axisBottom"
+                stroke="var(--app-text-3)"
+                stroke-width="1"
+                stroke-dasharray="3 3"
+              />
+
+              <!-- Hover indicator dot on curve -->
               <circle
                 v-if="hoverIndex >= 0 && chart.hasData"
                 :cx="hoverX"
@@ -294,7 +426,7 @@ function handleChartMouseLeave() {
                 stroke-width="2"
               />
 
-              <text v-if="!chart.hasData" x="320" y="112" text-anchor="middle" fill="currentColor" font-size="13">暂无曲线数据</text>
+              <text v-if="!chart.hasData" x="320" y="120" text-anchor="middle" fill="currentColor" font-size="13">暂无曲线数据</text>
             </svg>
 
             <!-- Tooltip -->
@@ -302,8 +434,9 @@ function handleChartMouseLeave() {
               v-if="hoverIndex >= 0 && chart.hasData"
               class="chart-tooltip"
               :style="{
-                left: ((hoverX / chart.width) * 100) + '%',
-                top: ((hoverY / chart.height) * 100) + '%',
+                left: mouseX + 'px',
+                top: (mouseY - 12) + 'px',
+                transform: 'translate(-50%, -100%)',
               }"
             >
               <div class="chart-tooltip-time">{{ formatDateShort(chart.hitTargets[hoverIndex].time) }}</div>
@@ -313,7 +446,7 @@ function handleChartMouseLeave() {
                 <span class="chart-tooltip-val">{{ formatTokens(chart.hitTargets[hoverIndex].prompt_tokens) }}</span>
               </div>
               <div class="chart-tooltip-row">
-                <span class="chart-tooltip-dot" style="background: #2080f0"></span>
+                <span class="chart-tooltip-dot" style="background: #f0a020"></span>
                 <span>输出</span>
                 <span class="chart-tooltip-val">{{ formatTokens(chart.hitTargets[hoverIndex].completion_tokens) }}</span>
               </div>
@@ -370,16 +503,16 @@ function handleChartMouseLeave() {
 <style scoped>
 .chart-tooltip {
   position: absolute;
-  transform: translate(-50%, calc(-100% - 12px));
-  background: transparent;
-  border: none;
-  border-radius: 4px;
-  padding: 4px 6px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  padding: 6px 10px;
   font-size: 12px;
   line-height: 1.6;
   pointer-events: none;
   white-space: nowrap;
   z-index: 10;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
 .chart-tooltip-time {

@@ -5,6 +5,7 @@ import type { ThemeMode } from './composables/useTheme'
 import * as App from '../bindings/relay-ai/app'
 import ProvidersView from './views/ProvidersView.vue'
 import LogViewer from './components/LogViewer.vue'
+import AboutView from './views/AboutView.vue'
 
 const activeTab = ref('providers')
 const { themeMode, theme, setTheme } = useTheme()
@@ -29,6 +30,7 @@ const themeOptions = [
           <n-tabs v-model:value="activeTab" type="line" animated>
             <n-tab name="providers">提供商</n-tab>
             <n-tab name="logs">日志</n-tab>
+            <n-tab name="about">关于</n-tab>
           </n-tabs>
           <n-radio-group
             :value="themeMode"
@@ -44,6 +46,7 @@ const themeOptions = [
       <n-layout-content style="flex: 1; overflow: hidden">
         <ProvidersView v-show="activeTab === 'providers'" />
         <LogViewer v-show="activeTab === 'logs'" :active="activeTab === 'logs'" />
+        <AboutView v-show="activeTab === 'about'" />
       </n-layout-content>
     </n-layout>
     </n-message-provider>

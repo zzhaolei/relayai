@@ -19,6 +19,9 @@ var assets embed.FS
 //go:embed build/appicon.png
 var appIcon []byte
 
+//go:embed build/darwin/tray/statusbar_template_3x.png
+var trayIcon []byte
+
 func main() {
 	unlock, err := singleinstance.LockFile()
 	if err != nil {
@@ -74,7 +77,7 @@ func main() {
 	tray := a.SystemTray.New()
 	tray.SetIcon(appIcon)
 	if runtime.GOOS == "darwin" {
-		tray.SetTemplateIcon(appIcon)
+		tray.SetTemplateIcon(trayIcon)
 	}
 	tray.SetTooltip("RelayAI")
 

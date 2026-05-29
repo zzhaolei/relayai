@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"regexp"
-	"strings"
 	"unsafe"
 
 	"relay-ai/internal/cli"
@@ -85,11 +84,7 @@ func (a *App) ProxyStatus() ProxyStatus {
 // --- Provider CRUD ---
 
 func (a *App) ProviderList() []config.Provider {
-	providers := a.store.GetProviders()
-	for i := range providers {
-		maskAPIKey(&providers[i])
-	}
-	return providers
+	return a.store.GetProviders()
 }
 
 func (a *App) ProviderCreate(name, baseURL, apiKey string, defaultModel string, modelMappings []config.ModelMapping, cliTypes []string, chatCompatMode bool) (config.Provider, error) {
@@ -104,24 +99,14 @@ func (a *App) ProviderCreate(name, baseURL, apiKey string, defaultModel string, 
 	if err := a.store.AddProvider(p); err != nil {
 		return config.Provider{}, err
 	}
-	maskAPIKey(&p)
 	return p, nil
-}
-
-func maskAPIKey(p *config.Provider) {
-	p.APIKey = p.AuthToken
 }
 
 func (a *App) ProviderUpdate(id, name, baseURL, apiKey string, defaultModel string, modelMappings []config.ModelMapping, cliTypes []string, chatCompatMode bool) error {
 	if !providerNamePattern.MatchString(name) {
 		return fmt.Errorf("provider name only supports English letters, numbers, underscores, and hyphens")
 	}
-	// 如果提交的是本地 key，保持原有真实 key 不变
-	if strings.HasPrefix(apiKey, "sk-local-") {
-		if existing := a.store.GetProvider(id); existing != nil {
-			apiKey = existing.APIKey
-		}
-	}
+
 	p := config.Provider{
 		Name:           name,
 		BaseURL:        baseURL,

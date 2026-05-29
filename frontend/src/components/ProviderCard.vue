@@ -4,7 +4,7 @@ import { useAppMessage } from '../composables/useMessage'
 import type { Provider, CLIType } from '../stores/app'
 import { useAppStore, CLI_TYPES } from '../stores/app'
 import CLIIcon from './CLIIcon.vue'
-import { getErrorMessage } from '../utils'
+import { getErrorMessage, formatTokens } from '../utils'
 
 const props = defineProps<{
   provider: Provider
@@ -44,9 +44,6 @@ const cliLabels: Record<string, string> = Object.fromEntries(
   CLI_TYPES.map(t => [t.key, t.label])
 )
 
-function formatTokens(value?: number) {
-  return new Intl.NumberFormat('zh-CN').format(value || 0)
-}
 </script>
 
 <template>
@@ -54,16 +51,12 @@ function formatTokens(value?: number) {
     size="small"
     :bordered="true"
     hoverable
-    :style="{ marginBottom: '10px', opacity: provider.enabled ? 1 : 0.5, position: 'relative', paddingTop: '6px' }"
+    :style="{ marginBottom: '22px', opacity: provider.enabled ? 1 : 0.5, position: 'relative' }"
   >
-    <n-tag
-      size="small"
-      type="info"
-      style="position: absolute; left: 12px; top: -10px; display: inline-flex; align-items: center; gap: 4px; background: var(--n-color)"
-    >
-      <CLIIcon v-if="primaryCliType" :type="primaryCliType as CLIType" :size="14" />
-      {{ primaryCliType ? (cliLabels[primaryCliType] || primaryCliType) : '未选择 CLI' }}
-    </n-tag>
+    <div class="cli-badge">
+      <CLIIcon v-if="primaryCliType" :type="primaryCliType as CLIType" :size="12" />
+      <span>{{ primaryCliType ? (cliLabels[primaryCliType] || primaryCliType) : '未选择 CLI' }}</span>
+    </div>
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px">
       <div style="display: flex; align-items: center; gap: 10px">
         <n-switch
@@ -105,4 +98,22 @@ function formatTokens(value?: number) {
 </template>
 
 <style scoped>
-</style>
+.cli-badge {
+  position: absolute;
+  top: 0;
+  left: 12px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--n-text-color-2);
+  background: var(--app-bg-1, #fff);
+  border: 1px solid var(--app-border-2, #efeff5);
+  border-radius: 4px;
+  z-index: 1;
+  white-space: nowrap;
+}</style>

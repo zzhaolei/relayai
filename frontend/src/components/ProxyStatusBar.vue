@@ -9,6 +9,10 @@ import { maskKey, copyToClipboard, getErrorMessage } from '../utils'
 const store = useAppStore()
 const message = useAppMessage()
 
+const cliLabels: Record<string, string> = Object.fromEntries(
+  CLI_TYPES.map(t => [t.key, t.label])
+)
+
 const isRestarting = ref(false)
 
 const statusText = computed(() => {
@@ -23,6 +27,7 @@ const statusType = computed(() => {
 
 const showConfigModal = ref(false)
 const showFullKey = ref(false)
+const spinningMap = ref<Record<string, boolean>>({})
 
 const proxyEndpoints = computed(() => {
   const port = store.proxyStatus.port || 18900
@@ -107,12 +112,21 @@ async function handleCopyToClipboard(text: string) {
 }
 
 async function handleWriteCLI(cliType: string) {
+  // Reset then re-trigger spin animation
+  spinningMap.value = { ...spinningMap.value, [cliType]: false }
+  await nextTick()
+  spinningMap.value = { ...spinningMap.value, [cliType]: true }
+
   try {
     await store.writeCLIConfig(cliType)
-    message.success(`${cliType} 配置已写入`)
+    message.success(`${cliLabels[cliType] || cliType} 配置已更新`)
   } catch (e: any) {
-    message.error(getErrorMessage(e, '写入失败'))
+    message.error(getErrorMessage(e, `${cliLabels[cliType] || cliType} 更新失败`))
   }
+}
+
+function onSpinEnd(cliType: string) {
+  spinningMap.value = { ...spinningMap.value, [cliType]: false }
 }
 
 function showConfig() {
@@ -172,30 +186,31 @@ async function copyConfig() {
       </div>
     </div>
 
-    <div style="display: flex; gap: 8px">
-      <n-card
+    <div class="cli-endpoints-row">
+      <div
         v-for="ep in proxyEndpoints"
         :key="ep.key"
-        size="small"
-        style="width: 164px; cursor: default"
-        hoverable
+        class="cli-endpoint-card"
       >
-        <div style="display: flex; align-items: center; justify-content: space-between">
-          <div style="display: flex; align-items: center; gap: 6px">
-            <CLIIcon :type="ep.key as CLIType" :size="14" />
-            <span style="font-weight: 500">{{ ep.label }}</span>
+        <div class="cli-endpoint-content">
+          <div class="cli-endpoint-info">
+            <CLIIcon :type="ep.key as CLIType" :size="18" />
+            <span class="cli-endpoint-label">{{ ep.label }}</span>
           </div>
-          <n-button
-            type="primary"
-            size="tiny"
+          <button
             class="cli-write-btn"
             @mousedown.prevent @click="handleWriteCLI(ep.key)"
           >
-            <template #icon><n-icon><svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z"/></svg></n-icon></template>
-            写入
-          </n-button>
+            <svg
+              class="cli-write-icon"
+              :class="{ spinning: spinningMap[ep.key] }"
+              @animationend="onSpinEnd(ep.key)"
+              viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"
+            ><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+            <span>更新</span>
+          </button>
         </div>
-      </n-card>
+      </div>
     </div>
 
     <n-modal
@@ -277,19 +292,90 @@ async function copyConfig() {
   0%, 100% { box-shadow: 0 0 0 0 rgba(24, 160, 88, 0.4); }
   50% { box-shadow: 0 0 0 6px rgba(24, 160, 88, 0); }
 }
-.cli-write-btn {
-  border-radius: 4px;
-  height: 24px;
-  padding: 0 8px;
-  font-size: 12px;
-}
-
-
-
-
-
 @keyframes pulse-yellow {
   0%, 100% { box-shadow: 0 0 0 0 rgba(240, 160, 32, 0.4); }
   50% { box-shadow: 0 0 0 6px rgba(240, 160, 32, 0); }
 }
+
+/* CLI endpoint cards row */
+.cli-endpoints-row {
+  display: flex;
+  gap: 8px;
+}
+
+.cli-endpoint-card {
+  width: 164px;
+  border-radius: 8px;
+  border: 1px solid var(--app-border-2, #efeff5);
+  background: var(--app-bg-2, #fafafa);
+  padding: 10px 12px;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: default;
+}
+.cli-endpoint-card:hover {
+  border-color: var(--n-primary-color-hover, #36ad6a);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  transform: translateY(-1px);
+}
+
+.cli-endpoint-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cli-endpoint-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cli-endpoint-label {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+/* Update button */
+.cli-write-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--app-border, #e0e0e6);
+  border-radius: 6px;
+  background: var(--app-bg-1, #ffffff);
+  color: var(--app-text-3, #8a8f8d);
+  height: 24px;
+  padding: 0 8px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  line-height: 1;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.cli-write-btn:hover {
+  color: var(--n-primary-color, #18a058);
+  border-color: var(--n-primary-color, #18a058);
+  background: rgba(24, 160, 88, 0.06);
+  box-shadow: 0 1px 4px rgba(24, 160, 88, 0.15);
+}
+.cli-write-btn:active {
+  transform: scale(0.95);
+  box-shadow: none;
+}
+.cli-write-btn .cli-write-icon {
+  flex-shrink: 0;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.cli-write-btn:hover .cli-write-icon:not(.spinning) {
+  transform: rotate(-45deg);
+}
+.cli-write-btn .cli-write-icon.spinning {
+  animation: spin-once 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+@keyframes spin-once {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 </style>

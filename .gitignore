@@ -48,3 +48,6 @@ frontend/auto-imports.d.ts
 frontend/components.d.ts
 
 *.log
+
+# Auto-generated icon files (generated during build)
+build/darwin/icon.iconset/

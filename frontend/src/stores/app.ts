@@ -103,6 +103,7 @@ export const useAppStore = defineStore('app', () => {
     providers.value = await App.ProviderList() as any
   }
 
+
   async function fetchProviderUsageStats() {
     await fetchProviders()
     providerUsageStats.value = providers.value.map(provider => ({
