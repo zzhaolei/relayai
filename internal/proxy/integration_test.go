@@ -10,7 +10,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 )
 
@@ -84,7 +83,7 @@ func integrationTestWithTransport(t *testing.T, upstreamChunks []string, respons
 		if requestModel == "" {
 			requestModel = "gpt-4o"
 		}
-		translateStream(r.Context(), w, upResp, flusher, canFlush, requestModel, sessions, requestMessages, "", nil, new(sync.Mutex), new(atomic.Bool))
+		translateStream(r.Context(), w, upResp, flusher, canFlush, requestModel, sessions, requestMessages, "", nil, new(sync.Mutex))
 	})
 
 	// Use httptest.NewUnstartedServer with a custom listener to avoid port bind
@@ -102,10 +101,10 @@ func integrationTestWithTransport(t *testing.T, upstreamChunks []string, respons
 	var currentEvent string
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.HasPrefix(line, "event: ") {
-			currentEvent = strings.TrimPrefix(line, "event: ")
-		} else if strings.HasPrefix(line, "data: ") {
-			events = append(events, currentEvent+":"+strings.TrimPrefix(line, "data: "))
+		if after, ok := strings.CutPrefix(line, "event: "); ok {
+			currentEvent = after
+		} else if after, ok := strings.CutPrefix(line, "data: "); ok {
+			events = append(events, currentEvent+":"+after)
 		}
 	}
 	return events

@@ -12,6 +12,19 @@ export default defineConfig({
     port: Number(process.env.WAILS_VITE_PORT) || 9245,
     strictPort: true,
   },
+  build: {
+    chunkSizeWarningLimit: 700,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('naive-ui')) return 'naive-ui'
+            return 'vendor'
+          }
+        },
+      },
+    },
+  },
   plugins: [
     vue(),
     AutoImport({

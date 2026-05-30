@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 )
@@ -13,8 +14,8 @@ const (
 )
 
 type ClaudeSettings struct {
-	Extra map[string]interface{} `json:"-"`
-	Env   map[string]string      `json:"env,omitempty"`
+	Extra map[string]any    `json:"-"`
+	Env   map[string]string `json:"env,omitempty"`
 }
 
 func (s *ClaudeSettings) UnmarshalJSON(data []byte) error {
@@ -22,12 +23,12 @@ func (s *ClaudeSettings) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
-	s.Extra = make(map[string]interface{})
+	s.Extra = make(map[string]any)
 	for k, v := range raw {
 		if k == "env" {
 			json.Unmarshal(v, &s.Env)
 		} else {
-			var val interface{}
+			var val any
 			json.Unmarshal(v, &val)
 			s.Extra[k] = val
 		}
@@ -36,10 +37,8 @@ func (s *ClaudeSettings) UnmarshalJSON(data []byte) error {
 }
 
 func (s *ClaudeSettings) MarshalJSON() ([]byte, error) {
-	m := make(map[string]interface{})
-	for k, v := range s.Extra {
-		m[k] = v
-	}
+	m := make(map[string]any)
+	maps.Copy(m, s.Extra)
 	if s.Env != nil {
 		m["env"] = s.Env
 	}

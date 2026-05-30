@@ -2,8 +2,11 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
+	"os"
 	"regexp"
+	"slices"
+	"strings"
 	"unsafe"
 
 	"relay-ai/internal/cli"
@@ -16,6 +19,14 @@ import (
 )
 
 var providerNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// capitalizeCLI returns a display-friendly name for CLI types (e.g. "claude" -> "Claude").
+func capitalizeCLI(s string) string {
+	if len(s) == 0 {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
 
 type App struct {
 	store *config.Store
@@ -34,12 +45,14 @@ type ProxyStatus struct {
 func NewApp() *App {
 	db, err := database.New()
 	if err != nil {
-		log.Fatalf("failed to init database: %v", err)
+		slog.Error("failed to init database", "error", err)
+		os.Exit(1)
 	}
 
 	store, err := config.NewStore(db.Conn())
 	if err != nil {
-		log.Fatalf("failed to init config store: %v", err)
+		slog.Error("failed to init config store", "error", err)
+		os.Exit(1)
 	}
 
 	return &App{
@@ -87,9 +100,27 @@ func (a *App) ProviderList() []config.Provider {
 	return a.store.GetProviders()
 }
 
+// checkDuplicateProviderName checks if a provider with the same name already exists.
+// Returns an error if a conflict is found.
+// When editing (updateID != ""), that provider is excluded from the check.
+func (a *App) checkDuplicateProviderName(name string, updateID string) error {
+	for _, existing := range a.store.GetProviders() {
+		if existing.ID == updateID {
+			continue
+		}
+		if existing.Name == name {
+			return fmt.Errorf("提供商名称「%s」已存在，请更换名称", name)
+		}
+	}
+	return nil
+}
+
 func (a *App) ProviderCreate(name, baseURL, apiKey string, defaultModel string, modelMappings []config.ModelMapping, cliTypes []string, chatCompatMode bool) (config.Provider, error) {
 	if !providerNamePattern.MatchString(name) {
 		return config.Provider{}, fmt.Errorf("provider name only supports English letters, numbers, underscores, and hyphens")
+	}
+	if err := a.checkDuplicateProviderName(name, ""); err != nil {
+		return config.Provider{}, err
 	}
 	p := config.NewProvider(name, baseURL, apiKey)
 	p.DefaultModel = defaultModel
@@ -105,6 +136,9 @@ func (a *App) ProviderCreate(name, baseURL, apiKey string, defaultModel string, 
 func (a *App) ProviderUpdate(id, name, baseURL, apiKey string, defaultModel string, modelMappings []config.ModelMapping, cliTypes []string, chatCompatMode bool) error {
 	if !providerNamePattern.MatchString(name) {
 		return fmt.Errorf("provider name only supports English letters, numbers, underscores, and hyphens")
+	}
+	if err := a.checkDuplicateProviderName(name, id); err != nil {
+		return err
 	}
 
 	p := config.Provider{
@@ -132,19 +166,19 @@ func (a *App) ProviderSetEnabled(id string, enabled bool) error {
 func (a *App) WriteCLIConfig(cliType string) error {
 	enabled := a.store.GetEnabledProviders()
 	if len(enabled) == 0 {
-		return fmt.Errorf("no enabled providers")
+		return fmt.Errorf("没有可用的提供商")
 	}
 
 	// 选择第一个支持该 CLI 类型的 provider
 	var provider *config.Provider
 	for _, p := range enabled {
-		if len(p.CLITypes) == 0 || containsStr(p.CLITypes, cliType) {
+		if len(p.CLITypes) == 0 || slices.Contains(p.CLITypes, cliType) {
 			provider = &p
 			break
 		}
 	}
 	if provider == nil {
-		return fmt.Errorf("no provider configured for %s", cliType)
+		return fmt.Errorf("未配置 %s 平台的提供商", capitalizeCLI(cliType))
 	}
 
 	proxyAddr := fmt.Sprintf("127.0.0.1:%d", a.store.GetPort())
@@ -158,23 +192,6 @@ func (a *App) WriteCLIConfig(cliType string) error {
 		return cli.EnableCodexProvider(proxyBaseURL+"/openai", proxyToken)
 	default:
 		return fmt.Errorf("unknown cli type: %s", cliType)
-	}
-}
-
-func containsStr(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
-}
-
-func (a *App) GetCLIConfigStatus() map[string]bool {
-	proxyAddr := fmt.Sprintf("127.0.0.1:%d", a.store.GetPort())
-	return map[string]bool{
-		"claude": cli.IsClaudeEnabled(proxyAddr),
-		"codex":  cli.IsCodexEnabled(proxyAddr),
 	}
 }
 
@@ -202,14 +219,6 @@ func (a *App) GetProxyLogsSizeKB() int64 {
 
 // --- Settings ---
 
-func (a *App) SettingsGet() config.AppSettings {
-	return a.store.GetSettings()
-}
-
-func (a *App) SettingsUpdatePort(port int) error {
-	return a.store.SetPort(port)
-}
-
 // --- Appearance ---
 
 func (a *App) SetAppearanceMode(mode string) {
@@ -232,4 +241,76 @@ func (a *App) SetDebugMode(enabled bool) error {
 	}
 	a.proxy.SetDebug(enabled)
 	return nil
+}
+
+// --- Combined log fetch (single IPC call) ---
+
+type ProxyLogData struct {
+	Logs      []proxy.RequestLog `json:"logs"`
+	SizeKB    int64              `json:"sizeKB"`
+	TotalUsed int                `json:"totalUsed"`
+}
+
+func (a *App) GetProxyLogData() ProxyLogData {
+	logs := a.proxy.GetLogs()
+	totalUsed := 0
+	for _, l := range logs {
+		totalUsed += l.TotalTokens
+	}
+	return ProxyLogData{
+		Logs:      logs,
+		SizeKB:    a.proxy.GetLogsSizeKB(),
+		TotalUsed: totalUsed,
+	}
+}
+
+// --- Limited log fetch (for initial load) ---
+
+func (a *App) GetProxyLogDataWithLimit(limit int) ProxyLogData {
+	logs := a.proxy.GetLogsWithLimit(limit)
+	totalUsed := 0
+	for _, l := range logs {
+		totalUsed += l.TotalTokens
+	}
+	return ProxyLogData{
+		Logs:      logs,
+		SizeKB:    a.proxy.GetLogsSizeKB(),
+		TotalUsed: totalUsed,
+	}
+}
+
+// --- Incremental log fetch ---
+
+type ProxyLogDataSince struct {
+	Logs      []proxy.RequestLog `json:"logs"`
+	SizeKB    int64              `json:"sizeKB"`
+	TotalUsed int                `json:"totalUsed"`
+}
+
+func (a *App) GetProxyLogDataSince(lastID string) ProxyLogDataSince {
+	logs := a.proxy.GetLogsSince(lastID)
+	totalUsed := 0
+	for _, l := range logs {
+		totalUsed += l.TotalTokens
+	}
+	return ProxyLogDataSince{
+		Logs:      logs,
+		SizeKB:    a.proxy.GetLogsSizeKB(),
+		TotalUsed: totalUsed,
+	}
+}
+
+// --- Date range log fetch ---
+
+func (a *App) GetProxyLogDataByTimeRange(from int64, to int64) ProxyLogDataSince {
+	logs := a.proxy.GetLogsByTimeRange(from, to)
+	totalUsed := 0
+	for _, l := range logs {
+		totalUsed += l.TotalTokens
+	}
+	return ProxyLogDataSince{
+		Logs:      logs,
+		SizeKB:    a.proxy.GetLogsSizeKB(),
+		TotalUsed: totalUsed,
+	}
 }

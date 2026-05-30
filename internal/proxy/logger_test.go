@@ -3,6 +3,7 @@ package proxy
 import (
 	"database/sql"
 	"testing"
+	"time"
 
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
@@ -13,6 +14,8 @@ func TestGetProviderUsageStats(t *testing.T) {
 		t.Fatalf("open database: %v", err)
 	}
 	defer db.Close()
+	// Use single connection for in-memory SQLite to avoid per-connection DB isolation
+	db.SetMaxOpenConns(1)
 
 	_, err = db.Exec(`
 		CREATE TABLE providers (
@@ -71,10 +74,13 @@ func TestGetProviderUsageStats(t *testing.T) {
 	}
 
 	logger := NewLogger(db)
-	logger.Add(RequestLog{ProviderID: "provider-openai", Provider: "OpenAI"}, 10, 5, 15)
-	logger.Add(RequestLog{ProviderID: "provider-openai", Provider: "OpenAI"}, 7, 3, 10)
-	logger.Add(RequestLog{ProviderID: "provider-anthropic", Provider: "Anthropic"}, 4, 6, 10)
-	logger.Add(RequestLog{Provider: "OpenAI"}, 100, 100, 200)
+	logger.Add(RequestLog{ProviderID: "provider-openai", Provider: "OpenAI", PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15})
+	logger.Add(RequestLog{ProviderID: "provider-openai", Provider: "OpenAI", PromptTokens: 7, CompletionTokens: 3, TotalTokens: 10})
+	logger.Add(RequestLog{ProviderID: "provider-anthropic", Provider: "Anthropic", PromptTokens: 4, CompletionTokens: 6, TotalTokens: 10})
+	logger.Add(RequestLog{Provider: "OpenAI", PromptTokens: 100, CompletionTokens: 100, TotalTokens: 200})
+
+	// Wait for async addProviderUsage goroutines to complete
+	time.Sleep(100 * time.Millisecond)
 
 	stats := logger.GetProviderUsageStats()
 	if len(stats) != 2 {

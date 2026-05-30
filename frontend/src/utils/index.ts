@@ -57,9 +57,36 @@ export function formatTokens(value?: number): string {
 
 /**
  * 统一错误消息提取
+ * Wails v3 RuntimeError: error.message contains full JSON like
+ *   {"message":"...", "cause":{}, "kind":"RuntimeError"}
+ * We need to extract just the inner message string.
  */
 export function getErrorMessage(error: any, fallbackMessage: string = '操作失败'): string {
-  if (error?.message) return error.message
-  if (typeof error === 'string') return error
+  // 1. String error
+  if (typeof error === 'string') {
+    return extractJsonMessage(error) || error
+  }
+  // 2. Object with message property (Wails RuntimeError or standard Error)
+  if (error?.message && typeof error.message === 'string') {
+    return extractJsonMessage(error.message) || error.message
+  }
+  // 3. Standard Error instance fallback
+  if (error instanceof Error) return error.message
+  // 4. Fallback
   return fallbackMessage
+}
+
+/**
+ * Try to parse a JSON string like {"message":"...", ...} and extract the inner message.
+ * Returns null if the input is not valid JSON or has no message field.
+ */
+function extractJsonMessage(s: string): string | null {
+  if (!s || s[0] !== '{') return null
+  try {
+    const obj = JSON.parse(s)
+    if (obj && typeof obj.message === 'string') return obj.message
+  } catch {
+    // Not valid JSON, ignore
+  }
+  return null
 }

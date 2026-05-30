@@ -238,6 +238,6 @@ func (s *Store) SetDebugMode(enabled bool) error {
 	if enabled {
 		val = "true"
 	}
-	_, err := s.db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('debug_mode', ?)", val)
+	_, err := s.db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('debug', ?)", val)
 	return err
 }

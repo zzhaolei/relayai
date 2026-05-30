@@ -77,8 +77,10 @@ async function handleFormSubmit(data: {
       await store.createProvider(payload)
       message.success('添加成功')
     }
+    formVisible.value = false
   } catch (e: any) {
-    message.error(getErrorMessage(e, '操作失败'))
+    const msg = getErrorMessage(e, '操作失败')
+    message.error(msg)
   }
 }
 

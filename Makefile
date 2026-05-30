@@ -5,6 +5,10 @@ APP_NAME := RelayAI
 BIN_DIR := bin
 VITE_PORT := 9245
 
+# Ensure Go bin directory is in PATH (for tools like wails3)
+GOPATH := $(shell go env GOPATH)
+export PATH := $(GOPATH)/bin:$(PATH)
+
 # Detect current OS
 UNAME_S := $(shell uname -s)
 
@@ -160,25 +164,27 @@ test-short: ## Run Go tests (short mode)
 	go test ./... -short
 
 # Code quality
-.PHONY: lint
-lint: ## Run linter
-	@echo "Running linter..."
-	cd frontend && npm run lint 2>/dev/null || true
-	go vet ./...
-
 .PHONY: fmt
-fmt: ## Format code
-	@echo "Formatting code..."
+fmt: ## Format and lint Go + frontend code
+	@echo "Fixing Go code..."
+	go fix ./...
+	@echo "Formatting Go code..."
 	gofmt -w .
+	@echo "Formatting frontend code..."
 	cd frontend && npm run format 2>/dev/null || true
+	@echo "Linting frontend..."
+	cd frontend && npm run lint 2>/dev/null || true
+	@test -d frontend/dist || (echo "frontend/dist not found, building frontend..." && cd frontend && npm run build)
+	@echo "Linting Go code..."
+	go vet ./...
 
 # Info
 .PHONY: info
 info: ## Show build information
-	@echo "App Name:    $(APP_NAME)"
-	@echo "Bin Dir:     $(BIN_DIR)"
-	@echo "Vite Port:   $(VITE_PORT)"
-	@echo "Platform:    $(UNAME_S) / $$(uname -m)"
-	@echo "Go Version:  $$(go version 2>/dev/null || echo 'not installed')"
-	@echo "Node Version:$$(node --version 2>/dev/null || echo 'not installed')"
-	@echo "Wails3:      $$(wails3 version 2>/dev/null || echo 'not installed')"
+	@echo "App Name:     $(APP_NAME)"
+	@echo "Bin Dir:      $(BIN_DIR)"
+	@echo "Vite Port:    $(VITE_PORT)"
+	@echo "Platform:     $(UNAME_S) / $$(uname -m)"
+	@echo "Go Version:   $$(go version 2>/dev/null || echo 'not installed')"
+	@echo "Node Version: $$(node --version 2>/dev/null || echo 'not installed')"
+	@echo "Wails3:       $$(wails3 version 2>&1 || echo 'not installed')"

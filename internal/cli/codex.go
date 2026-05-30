@@ -39,7 +39,7 @@ func codexEnvPath() (string, error) {
 	return filepath.Join(home, codexDir, "relayai_env.sh"), nil
 }
 
-func ReadCodexConfig() (map[string]interface{}, error) {
+func ReadCodexConfig() (map[string]any, error) {
 	path, err := codexConfigPath()
 	if err != nil {
 		return nil, err
@@ -48,14 +48,14 @@ func ReadCodexConfig() (map[string]interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	var m map[string]interface{}
+	var m map[string]any
 	if err := toml.Unmarshal(data, &m); err != nil {
 		return nil, err
 	}
 	return m, nil
 }
 
-func WriteCodexConfig(m map[string]interface{}) error {
+func WriteCodexConfig(m map[string]any) error {
 	path, err := codexConfigPath()
 	if err != nil {
 		return err
@@ -74,7 +74,7 @@ func EnableCodexProvider(baseURL, apiKey string) error {
 	m, err := ReadCodexConfig()
 	if err != nil {
 		if os.IsNotExist(err) {
-			m = make(map[string]interface{})
+			m = make(map[string]any)
 		} else {
 			return err
 		}
@@ -82,12 +82,12 @@ func EnableCodexProvider(baseURL, apiKey string) error {
 
 	m["model_provider"] = "relayai"
 
-	providers, _ := m["model_providers"].(map[string]interface{})
+	providers, _ := m["model_providers"].(map[string]any)
 	if providers == nil {
-		providers = make(map[string]interface{})
+		providers = make(map[string]any)
 	}
 
-	providers["relayai"] = map[string]interface{}{
+	providers["relayai"] = map[string]any{
 		"name":                 "RelayAI",
 		"base_url":             strings.TrimRight(baseURL, "/"),
 		"requires_openai_auth": true,
@@ -99,9 +99,9 @@ func EnableCodexProvider(baseURL, apiKey string) error {
 	// Set recommended Codex options
 	m["model_reasoning_effort"] = "xhigh"
 
-	features, _ := m["features"].(map[string]interface{})
+	features, _ := m["features"].(map[string]any)
 	if features == nil {
-		features = make(map[string]interface{})
+		features = make(map[string]any)
 	}
 	features["goals"] = true
 	m["features"] = features
@@ -136,7 +136,7 @@ func DisableCodexProvider() error {
 		delete(m, "model_provider")
 	}
 
-	if providers, ok := m["model_providers"].(map[string]interface{}); ok {
+	if providers, ok := m["model_providers"].(map[string]any); ok {
 		delete(providers, "relayai")
 		m["model_providers"] = providers
 	}
@@ -158,19 +158,14 @@ func IsCodexEnabled(proxyAddr string) bool {
 	if m["model_provider"] != "relayai" {
 		return false
 	}
-	providers, ok := m["model_providers"].(map[string]interface{})
+	providers, ok := m["model_providers"].(map[string]any)
 	if !ok {
 		return false
 	}
-	relayai, ok := providers["relayai"].(map[string]interface{})
+	relayai, ok := providers["relayai"].(map[string]any)
 	if !ok {
 		return false
 	}
 	expected := fmt.Sprintf("http://%s/openai", proxyAddr)
 	return relayai["base_url"] == expected
-}
-
-func GetCodexEnvFilePath() string {
-	path, _ := codexEnvPath()
-	return path
 }

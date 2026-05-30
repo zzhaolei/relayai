@@ -133,9 +133,9 @@ function buildChart(points: ProviderUsagePoint[]) {
       if (m1 * m <= 0) m1 = 0
       const dx = dxs[i] / 3
       const cx1 = pts[i].x + dx
-      const cy1 = pts[i].y + m0 * dx
+      const cy1 = Math.min(pts[i].y + m0 * dx, axisBottom)
       const cx2 = pts[i + 1].x - dx
-      const cy2 = pts[i + 1].y - m1 * dx
+      const cy2 = Math.min(pts[i + 1].y - m1 * dx, axisBottom)
       d += ` C${cx1.toFixed(1)},${cy1.toFixed(1)} ${cx2.toFixed(1)},${cy2.toFixed(1)} ${pts[i + 1].x.toFixed(1)},${pts[i + 1].y.toFixed(1)}`
     }
     return d
@@ -218,15 +218,21 @@ function formatXLabel(time: number): string {
 }
 
 function handleChartMouseMove(e: MouseEvent) {
-  const svg = (e.currentTarget as SVGElement).closest('.chart-container')?.querySelector('svg')
+  const container = e.currentTarget as HTMLElement
+  const svg = container.querySelector('svg') as SVGSVGElement | null
   if (!svg) return
-  const rect = svg.getBoundingClientRect()
-  const svgW = chart.value.width
-  const svgH = chart.value.height
-  const scaleX = svgW / rect.width
-  const scaleY = svgH / rect.height
-  const mx = (e.clientX - rect.left) * scaleX
-  const my = (e.clientY - rect.top) * scaleY
+
+  // Tooltip position: relative to the container
+  const containerRect = container.getBoundingClientRect()
+  mouseX.value = e.clientX - containerRect.left
+  mouseY.value = e.clientY - containerRect.top
+
+  // Use SVG getScreenCTM for accurate viewBox coordinate mapping
+  // This correctly handles preserveAspectRatio centering/scaling
+  const ctm = svg.getScreenCTM()
+  if (!ctm) return
+  const invCTM = ctm.inverse()
+  const svgX = invCTM.a * e.clientX + invCTM.c * e.clientY + invCTM.e
 
   const targets = chart.value.hitTargets
   if (targets.length === 0) {
@@ -234,26 +240,19 @@ function handleChartMouseMove(e: MouseEvent) {
     return
   }
 
-  // 只用 x 距离匹配最近的数据点
-  let closest = -1
-  let minDx = Infinity
-  for (let i = 0; i < targets.length; i++) {
-    const dx = Math.abs(targets[i].x - mx)
+  // Find nearest data point by x distance in viewBox coordinates
+  let closest = 0
+  let minDx = Math.abs(targets[0].x - svgX)
+  for (let i = 1; i < targets.length; i++) {
+    const dx = Math.abs(targets[i].x - svgX)
     if (dx < minDx) {
       minDx = dx
       closest = i
     }
   }
   hoverIndex.value = closest
-  if (closest >= 0) {
-    hoverX.value = targets[closest].x
-    hoverY.value = targets[closest].y
-    // 使用鼠标在容器中的相对位置
-    const container = (e.currentTarget as HTMLElement)
-    const containerRect = container.getBoundingClientRect()
-    mouseX.value = e.clientX - containerRect.left
-    mouseY.value = e.clientY - containerRect.top
-  }
+  hoverX.value = targets[closest].x
+  hoverY.value = targets[closest].y
 }
 
 function handleChartMouseLeave() {
@@ -266,7 +265,7 @@ function handleChartMouseLeave() {
     :show="visible"
     preset="card"
     :title="provider ? provider.name : '提供商详情'"
-    style="width: min(860px, 92vw)"
+    :style="{ width: 'min(860px, 92vw)', zIndex: 2000, transform: 'translateY(42px)' }"
     :bordered="false"
     @update:show="handleVisibleChange"
   >
@@ -391,16 +390,15 @@ function handleChartMouseLeave() {
                 text-anchor="middle"
               >{{ label.label }}</text>
 
-              <!-- Invisible hit targets for mouse hover -->
+              <!-- Full-width transparent overlay for reliable mouse hover across entire chart -->
               <rect
-                v-for="(t, i) in chart.hitTargets"
-                :key="'hit'+i"
-                :x="t.x - chart.barWidth"
+                :x="chart.padding.left"
                 :y="chart.padding.top"
-                :width="chart.barWidth"
-                :height="chart.height - chart.padding.top - chart.padding.bottom"
+                :width="chart.axisRight - chart.padding.left"
+                :height="chart.axisBottom - chart.padding.top"
                 fill="transparent"
                 stroke="none"
+                style="cursor: crosshair"
               />
 
               <!-- Hover indicator line -->

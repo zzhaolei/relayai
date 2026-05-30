@@ -7,6 +7,22 @@ import appIcon from '../assets/appicon.png'
 
 const store = useAppStore()
 
+// Hidden trigger: emit 'debug-unlock' after 5 rapid clicks on app icon
+const iconClickCount = ref(0)
+let iconClickTimer: ReturnType<typeof setTimeout> | null = null
+const emit = defineEmits<{ 'debug-unlock': [] }>()
+
+function onIconClick() {
+  iconClickCount.value++
+  if (iconClickTimer) clearTimeout(iconClickTimer)
+  if (iconClickCount.value >= 3) {
+    iconClickCount.value = 0
+    emit('debug-unlock')
+    return
+  }
+  iconClickTimer = setTimeout(() => { iconClickCount.value = 0 }, 1500)
+}
+
 const appName = 'RelayAI'
 const appVersion = 'v1.0.0'
 const appDescription = 'AI 模型反代管理工具'
@@ -36,14 +52,15 @@ function openExternal(url: string) {
 </script>
 
 <template>
-  <div style="height: 100%; overflow-y: auto; padding: 24px 32px">
+  <div style="height: 100%; overflow-y: auto; padding: 24px 32px 32px">
     <div style="max-width: 560px; margin: 0 auto">
       <!-- App Info -->
       <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 32px">
         <img
           :src="appIcon"
           alt="RelayAI"
-          style="width: 64px; height: 64px; border-radius: 14px; flex-shrink: 0"
+          style="width: 64px; height: 64px; border-radius: 14px; flex-shrink: 0; cursor: pointer"
+          @click="onIconClick"
         />
         <div>
           <n-text strong style="font-size: 22px; display: block">{{ appName }}</n-text>
@@ -112,7 +129,7 @@ function openExternal(url: string) {
 
       <!-- Footer -->
       <n-divider style="margin: 0 0 16px 0" />
-      <div style="text-align: center; padding-bottom: 16px">
+      <div style="text-align: center; padding-bottom: 24px">
         <n-text depth="3" style="font-size: 12px">Built with Wails v3 + Vue 3 + Go</n-text>
       </div>
     </div>

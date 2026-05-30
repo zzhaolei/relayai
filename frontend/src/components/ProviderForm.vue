@@ -90,10 +90,7 @@ function handleSubmit() {
     message.warning('请输入 API Key')
     return
   }
-  if (!form.value.default_model.trim()) {
-    message.warning('请输入默认模型')
-    return
-  }
+
   if (!form.value.cli_type) {
     message.warning('请选择一个 CLI 平台')
     return
@@ -112,7 +109,6 @@ function handleSubmit() {
     cli_types: [form.value.cli_type],
     chat_compat_mode: form.value.cli_type === 'codex' && form.value.chat_compat_mode,
   })
-  emit('update:visible', false)
 }
 
 function handleCancel() {
@@ -125,7 +121,7 @@ function handleCancel() {
     :show="visible"
     @update:show="(v: boolean) => { if (!v) handleCancel() }"
     :title="provider ? '编辑提供商' : '添加提供商'"
-    :style="{ width: '520px' }"
+    :style="{ width: '520px', zIndex: 2000, transform: 'translateY(42px)' }"
     preset="card"
     :bordered="false"
   >
@@ -157,7 +153,7 @@ function handleCancel() {
 
       <n-form-item label="名称" required>
         <n-input :input-props="{ spellcheck: 'false' }" v-model:value="form.name" placeholder="例如：DeepSeek_01" />
-        <template #feedback>仅支持英文、数字、下划线和 -</template>
+        <template #feedback>仅支持英文、数字、下划线和 -，名称不可重复</template>
       </n-form-item>
       <n-form-item label="API Base URL" required>
         <n-input :input-props="{ spellcheck: 'false' }" v-model:value="form.base_url" placeholder="例如：https://api.deepseek.com" />

@@ -44,3 +44,9 @@ html, body, #app {
   box-shadow: none !important;
   outline: none !important;
 }
+
+/* 防止触控板滚动时整个页面弹性回弹 */
+html, body {
+  overscroll-behavior: none;
+  overflow: hidden;
+}

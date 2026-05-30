@@ -3,12 +3,14 @@ package proxy
 import (
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 )
 
 const (
-	logTTL = 7 * 24 * time.Hour // 保留 7 天日志
+	usageRetention = 12 * time.Hour // 用量曲线保留 12 小时
+	maxLogCount    = 10000          // 日志最多保留 10000 条
 )
 
 type RequestLog struct {
@@ -59,46 +61,164 @@ func NewLogger(db *sql.DB) *Logger {
 }
 
 func (l *Logger) init() {
-	// 启动时清理过期日志
-	cutoff := time.Now().Add(-logTTL).UnixMilli()
-	l.db.Exec("DELETE FROM request_logs WHERE time < ?", cutoff)
-
-	// 获取当前最大序号
+	// 获取当前最大序号（必须同步，保证后续 ID 不冲突）
 	var maxID sql.NullInt64
 	l.db.QueryRow("SELECT MAX(CAST(id AS INTEGER)) FROM request_logs").Scan(&maxID)
 	if maxID.Valid {
 		l.seq = maxID.Int64
 	}
+
+	// 清理放到后台执行，不阻塞启动
+	go l.cleanupLoop()
 }
 
-func (l *Logger) Add(entry RequestLog, promptTokens, completionTokens, totalTokens int) {
+// cleanupLoop runs periodic cleanup in the background.
+// Removes old usage points (>12h) and excess logs (>1000 or >12h).
+func (l *Logger) cleanupLoop() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		// 删除超过 12 小时的用量曲线
+		cutoff := time.Now().Add(-usageRetention).UnixMilli()
+		if _, err := l.db.Exec("DELETE FROM provider_usage_points WHERE bucket_start < ?", cutoff); err != nil {
+			slog.Error("failed to cleanup old usage points", "error", err)
+		}
+
+		// 删除超过 12 小时的日志
+		logCutoff := time.Now().Add(-7 * 24 * time.Hour).UnixMilli()
+		if _, err := l.db.Exec("DELETE FROM request_logs WHERE time < ?", logCutoff); err != nil {
+			slog.Error("failed to cleanup old request logs by time", "error", err)
+		}
+
+		// 删除超出条数上限的日志
+		if _, err := l.db.Exec(
+			"DELETE FROM request_logs WHERE id NOT IN (SELECT id FROM request_logs ORDER BY time DESC LIMIT ?)",
+			maxLogCount,
+		); err != nil {
+			slog.Error("failed to cleanup excess request logs", "error", err)
+		}
+	}
+}
+
+func (l *Logger) Add(entry RequestLog) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	l.seq++
 	entry.ID = fmt.Sprintf("%d", l.seq)
 	entry.Time = time.Now().UnixMilli()
-	entry.PromptTokens = promptTokens
-	entry.CompletionTokens = completionTokens
-	entry.TotalTokens = totalTokens
 
 	_, err := l.db.Exec(
 		"INSERT INTO request_logs (id, time, method, path, upstream_url, cli_type, provider_id, provider, model, status_code, duration_ms, prompt_tokens, completion_tokens, total_tokens, error, response_body) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		entry.ID, entry.Time, entry.Method, entry.Path, entry.UpstreamURL, entry.CLIType, entry.ProviderID, entry.Provider, entry.Model, entry.StatusCode, entry.Duration, entry.PromptTokens, entry.CompletionTokens, entry.TotalTokens, entry.Error, entry.ResponseBody,
 	)
 	if err != nil {
-		// 日志写入失败不影响主流程
-		fmt.Printf("写入日志失败: %v\n", err)
+		slog.Error("failed to write request log", "error", err)
 	}
 
-	l.addProviderUsage(entry, promptTokens, completionTokens, totalTokens)
+	// 异步写入用量，不阻塞日志主流程
+	go l.addProviderUsage(entry)
 }
 
 func (l *Logger) GetLogs() []RequestLog {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 
-	rows, err := l.db.Query("SELECT id, time, method, path, upstream_url, cli_type, provider_id, provider, model, status_code, duration_ms, prompt_tokens, completion_tokens, total_tokens, error, response_body FROM request_logs ORDER BY time DESC LIMIT 500")
+	rows, err := l.db.Query(
+		"SELECT id, time, method, path, upstream_url, cli_type, provider_id, provider, model, status_code, duration_ms, prompt_tokens, completion_tokens, total_tokens, error, response_body FROM request_logs ORDER BY time DESC LIMIT ?",
+		maxLogCount,
+	)
+	if err != nil {
+		return []RequestLog{}
+	}
+	defer rows.Close()
+
+	logs := make([]RequestLog, 0)
+	for rows.Next() {
+		var log RequestLog
+		err := rows.Scan(&log.ID, &log.Time, &log.Method, &log.Path, &log.UpstreamURL, &log.CLIType, &log.ProviderID, &log.Provider, &log.Model, &log.StatusCode, &log.Duration, &log.PromptTokens, &log.CompletionTokens, &log.TotalTokens, &log.Error, &log.ResponseBody)
+		if err != nil {
+			continue
+		}
+		logs = append(logs, log)
+	}
+	return logs
+}
+
+// GetLogs retrieves logs up to a specified limit, newest first.
+func (l *Logger) GetLogsWithLimit(limit int) []RequestLog {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	rows, err := l.db.Query(
+		"SELECT id, time, method, path, upstream_url, cli_type, provider_id, provider, model, status_code, duration_ms, prompt_tokens, completion_tokens, total_tokens, error, response_body FROM request_logs ORDER BY time DESC LIMIT ?",
+		limit,
+	)
+	if err != nil {
+		return []RequestLog{}
+	}
+	defer rows.Close()
+
+	logs := make([]RequestLog, 0)
+	for rows.Next() {
+		var log RequestLog
+		err := rows.Scan(&log.ID, &log.Time, &log.Method, &log.Path, &log.UpstreamURL, &log.CLIType, &log.ProviderID, &log.Provider, &log.Model, &log.StatusCode, &log.Duration, &log.PromptTokens, &log.CompletionTokens, &log.TotalTokens, &log.Error, &log.ResponseBody)
+		if err != nil {
+			continue
+		}
+		logs = append(logs, log)
+	}
+	return logs
+}
+
+// GetLogsSince retrieves logs with ID greater than lastID.
+// If lastID is empty, returns all logs (up to maxLogCount).
+func (l *Logger) GetLogsSince(lastID string) []RequestLog {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	var rows *sql.Rows
+	var err error
+
+	if lastID == "" {
+		rows, err = l.db.Query(
+			"SELECT id, time, method, path, upstream_url, cli_type, provider_id, provider, model, status_code, duration_ms, prompt_tokens, completion_tokens, total_tokens, error, response_body FROM request_logs ORDER BY time DESC LIMIT ?",
+			maxLogCount,
+		)
+	} else {
+		rows, err = l.db.Query(
+			"SELECT id, time, method, path, upstream_url, cli_type, provider_id, provider, model, status_code, duration_ms, prompt_tokens, completion_tokens, total_tokens, error, response_body FROM request_logs WHERE id > ? ORDER BY time DESC LIMIT ?",
+			lastID, maxLogCount,
+		)
+	}
+
+	if err != nil {
+		return []RequestLog{}
+	}
+	defer rows.Close()
+
+	logs := make([]RequestLog, 0)
+	for rows.Next() {
+		var log RequestLog
+		err := rows.Scan(&log.ID, &log.Time, &log.Method, &log.Path, &log.UpstreamURL, &log.CLIType, &log.ProviderID, &log.Provider, &log.Model, &log.StatusCode, &log.Duration, &log.PromptTokens, &log.CompletionTokens, &log.TotalTokens, &log.Error, &log.ResponseBody)
+		if err != nil {
+			continue
+		}
+		logs = append(logs, log)
+	}
+	return logs
+}
+
+// GetLogsByTimeRange retrieves logs within [from, to] time range (UnixMillis).
+// Returns up to maxLogCount entries, newest first.
+func (l *Logger) GetLogsByTimeRange(from, to int64) []RequestLog {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	rows, err := l.db.Query(
+		"SELECT id, time, method, path, upstream_url, cli_type, provider_id, provider, model, status_code, duration_ms, prompt_tokens, completion_tokens, total_tokens, error, response_body FROM request_logs WHERE time >= ? AND time <= ? ORDER BY time DESC LIMIT ?",
+		from, to, maxLogCount,
+	)
 	if err != nil {
 		return []RequestLog{}
 	}
@@ -159,40 +279,36 @@ func (l *Logger) GetProviderUsageSeries(providerID string) []ProviderUsagePoint 
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 
+	cutoff := time.Now().Add(-usageRetention).UnixMilli()
 	rows, err := l.db.Query(`
 		SELECT bucket_start, prompt_tokens, completion_tokens, total_tokens
 		FROM provider_usage_points
 		WHERE provider_id = ?
-		ORDER BY bucket_start DESC
-		LIMIT 120
-	`, providerID)
+		AND bucket_start > ?
+		ORDER BY bucket_start ASC
+	`, providerID, cutoff)
 	if err != nil {
 		return []ProviderUsagePoint{}
 	}
 	defer rows.Close()
 
-	reversed := make([]ProviderUsagePoint, 0)
+	points := make([]ProviderUsagePoint, 0)
 	for rows.Next() {
 		var point ProviderUsagePoint
 		err := rows.Scan(&point.Time, &point.PromptTokens, &point.CompletionTokens, &point.TotalTokens)
 		if err != nil {
 			continue
 		}
-		reversed = append(reversed, point)
-	}
-
-	points := make([]ProviderUsagePoint, len(reversed))
-	for i := range reversed {
-		points[len(reversed)-1-i] = reversed[i]
+		points = append(points, point)
 	}
 	return points
 }
 
-func (l *Logger) addProviderUsage(entry RequestLog, promptTokens, completionTokens, totalTokens int) {
+func (l *Logger) addProviderUsage(entry RequestLog) {
 	if entry.ProviderID == "" {
 		return
 	}
-	if promptTokens == 0 && completionTokens == 0 && totalTokens == 0 {
+	if entry.PromptTokens == 0 && entry.CompletionTokens == 0 && entry.TotalTokens == 0 {
 		return
 	}
 
@@ -203,18 +319,17 @@ func (l *Logger) addProviderUsage(entry RequestLog, promptTokens, completionToke
 			total_tokens = COALESCE(total_tokens, 0) + ?,
 			usage_updated_at = ?
 		WHERE id = ?`,
-		promptTokens,
-		completionTokens,
-		totalTokens,
+		entry.PromptTokens,
+		entry.CompletionTokens,
+		entry.TotalTokens,
 		entry.Time,
 		entry.ProviderID,
 	)
 	if err != nil {
-		// 用量累计失败不影响代理请求。
-		fmt.Printf("更新提供商用量失败: %v\n", err)
+		slog.Error("failed to update provider usage", "error", err)
 	}
 
-	bucketStart := entry.Time - entry.Time%int64(time.Minute/time.Millisecond)
+	bucketStart := entry.Time - entry.Time%int64(10*time.Minute/time.Millisecond)
 	_, err = l.db.Exec(
 		`INSERT INTO provider_usage_points (provider_id, bucket_start, prompt_tokens, completion_tokens, total_tokens)
 		VALUES (?, ?, ?, ?, ?)
@@ -224,13 +339,12 @@ func (l *Logger) addProviderUsage(entry RequestLog, promptTokens, completionToke
 			total_tokens = total_tokens + excluded.total_tokens`,
 		entry.ProviderID,
 		bucketStart,
-		promptTokens,
-		completionTokens,
-		totalTokens,
+		entry.PromptTokens,
+		entry.CompletionTokens,
+		entry.TotalTokens,
 	)
 	if err != nil {
-		// 曲线采样失败不影响代理请求。
-		fmt.Printf("更新提供商用量曲线失败: %v\n", err)
+		slog.Error("failed to update provider usage series", "error", err)
 	}
 }
 
@@ -246,6 +360,5 @@ func (l *Logger) GetSizeKB() int64 {
 
 	var count int64
 	l.db.QueryRow("SELECT COUNT(*) FROM request_logs").Scan(&count)
-	// 估算每条日志约 500 字节
 	return (count * 500) / 1024
 }

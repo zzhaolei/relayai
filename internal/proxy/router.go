@@ -5,18 +5,22 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
+	"maps"
+	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"relay-ai/internal/config"
 )
+
 // jsonMarshalSafe marshals JSON without HTML-escaping <, >, &.
 // Go's json.Marshal HTML-escapes these by default, but codex-relay's serde_json
 // does not. Codex CLI was tested against codex-relay output, and the escaping
@@ -36,34 +40,28 @@ func jsonMarshalSafe(v any) ([]byte, error) {
 	return b, nil
 }
 
-
 const (
 	cliClaude = "claude"
 	cliCodex  = "codex"
 )
 
-// debugLog logs a message only when debug mode is enabled.
-func debugLog(debug *atomic.Bool, format string, args ...any) {
-	if debug != nil && debug.Load() {
-		log.Printf(format, args...)
-	}
-}
-
-func newRouter(store *config.Store, logger *Logger, sessions *SessionStore, debug *atomic.Bool) http.Handler {
+func newRouter(store *config.Store, logger *Logger, sessions *SessionStore) http.Handler {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/anthropic/{path...}", makeHandler(store, logger, sessions, cliClaude, "/anthropic", debug))
-	mux.HandleFunc("/openai/{path...}", makeHandler(store, logger, sessions, cliCodex, "/openai", debug))
-	mux.HandleFunc("/v1/responses", makeHandler(store, logger, sessions, cliCodex, "", debug))
+	mux.HandleFunc("/anthropic/{path...}", makeHandler(store, logger, sessions, cliClaude, "/anthropic"))
+	mux.HandleFunc("/openai/{path...}", makeHandler(store, logger, sessions, cliCodex, "/openai"))
+	mux.HandleFunc("/v1/responses", makeHandler(store, logger, sessions, cliCodex, ""))
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
+		if _, err := w.Write([]byte("ok")); err != nil {
+			slog.Error("health write error", "error", err)
+		}
 	})
 
 	return mux
 }
 
-func makeHandler(store *config.Store, logger *Logger, sessions *SessionStore, cliType, prefix string, debug *atomic.Bool) http.HandlerFunc {
+func makeHandler(store *config.Store, logger *Logger, sessions *SessionStore, cliType, prefix string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
@@ -79,7 +77,7 @@ func makeHandler(store *config.Store, logger *Logger, sessions *SessionStore, cl
 		}
 		if len(providers) == 0 {
 			for _, p := range store.GetEnabledProviders() {
-				if len(p.CLITypes) == 0 || contains(p.CLITypes, cliType) {
+				if len(p.CLITypes) == 0 || slices.Contains(p.CLITypes, cliType) {
 					providers = append(providers, p)
 				}
 			}
@@ -93,7 +91,7 @@ func makeHandler(store *config.Store, logger *Logger, sessions *SessionStore, cl
 				StatusCode: http.StatusBadGateway,
 				Duration:   time.Since(start).Milliseconds(),
 				Error:      "no provider configured for " + cliType,
-			}, 0, 0, 0)
+			})
 			http.Error(w, `{"error":{"message":"no provider configured for `+cliType+`"}}`, http.StatusBadGateway)
 			return
 		}
@@ -115,7 +113,7 @@ func makeHandler(store *config.Store, logger *Logger, sessions *SessionStore, cl
 					StatusCode: http.StatusBadRequest,
 					Duration:   time.Since(start).Milliseconds(),
 					Error:      "failed to read request body",
-				}, 0, 0, 0)
+				})
 				http.Error(w, `{"error":{"message":"failed to read request body"}}`, http.StatusBadRequest)
 				return
 			}
@@ -129,14 +127,12 @@ func makeHandler(store *config.Store, logger *Logger, sessions *SessionStore, cl
 
 		if isResponsesPath && chatCompatMode {
 			// Chat compat mode: Responses API → Chat Completions
-			if strings.HasSuffix(upstreamPath, "/v1/responses") {
-				upstreamPath = strings.TrimSuffix(upstreamPath, "/v1/responses") + "/v1/chat/completions"
-			} else if strings.HasSuffix(upstreamPath, "/responses") {
-				upstreamPath = strings.TrimSuffix(upstreamPath, "/responses") + "/chat/completions"
+			if before, ok := strings.CutSuffix(upstreamPath, "/v1/responses"); ok {
+				upstreamPath = before + "/v1/chat/completions"
+			} else if before, ok := strings.CutSuffix(upstreamPath, "/responses"); ok {
+				upstreamPath = before + "/chat/completions"
 			}
-			debugLog(debug, "[codex] path=%s chatCompatMode=true stream=%v body=%s", r.URL.Path, isStreamingRequest(bodyBytes), string(bodyBytes[:min(len(bodyBytes), 2000)]))
 			bodyBytes, requestModel = toChatRequest(bodyBytes, sessions)
-			debugLog(debug, "[codex] converted=%s", string(bodyBytes[:min(len(bodyBytes), 2000)]))
 
 			// Extract messages for session history
 			var reqMap map[string]any
@@ -160,12 +156,12 @@ func makeHandler(store *config.Store, logger *Logger, sessions *SessionStore, cl
 		for i, provider := range providers {
 			target, err := url.Parse(provider.BaseURL)
 			if err != nil {
-				log.Printf("proxy %s: invalid base_url %q: %v", cliType, provider.BaseURL, err)
+				slog.Error("invalid provider base_url", "cli", cliType, "base_url", provider.BaseURL, "error", err)
 				lastErr = fmt.Sprintf("invalid base_url: %v", err)
 				continue
 			}
 
-			providerBody := transformBody(bodyBytes, &provider, debug)
+			providerBody := transformBody(bodyBytes, &provider)
 			actualModel := extractModel(providerBody)
 
 			upstreamURL := joinURL(target, upstreamPath)
@@ -173,31 +169,32 @@ func makeHandler(store *config.Store, logger *Logger, sessions *SessionStore, cl
 				upstreamURL += "?" + r.URL.RawQuery
 			}
 
-			debugLog(debug, "proxy %s [%d/%d] %s -> %s", cliType, i+1, len(providers), r.Method, upstreamURL)
-
 			needResponseConversion := isResponsesPath && chatCompatMode
 			canFallback := i < len(providers)-1
-			result := tryProvider(w, r, upstreamURL, providerBody, &provider, canFallback, needResponseConversion, sessions, requestModel, requestMessages, debug)
+			result := tryProvider(w, r, upstreamURL, providerBody, &provider, canFallback, needResponseConversion, sessions, requestModel, requestMessages)
 			if result.StatusCode > 0 {
 				logger.Add(RequestLog{
-					Method:       r.Method,
-					Path:         upstreamURL,
-					UpstreamURL:  upstreamURL,
-					CLIType:      cliType,
-					ProviderID:   provider.ID,
-					Provider:     provider.Name,
-					Model:        actualModel,
-					StatusCode:   result.StatusCode,
-					Duration:     time.Since(start).Milliseconds(),
-					ResponseBody: result.ResponseBody,
-				}, result.PromptTokens, result.CompletionTokens, result.TotalTokens)
+					Method:           r.Method,
+					Path:             upstreamURL,
+					UpstreamURL:      upstreamURL,
+					CLIType:          cliType,
+					ProviderID:       provider.ID,
+					Provider:         provider.Name,
+					Model:            actualModel,
+					StatusCode:       result.StatusCode,
+					Duration:         time.Since(start).Milliseconds(),
+					ResponseBody:     result.ResponseBody,
+					PromptTokens:     result.PromptTokens,
+					CompletionTokens: result.CompletionTokens,
+					TotalTokens:      result.TotalTokens,
+				})
 				return
 			}
 
 			lastErr = result.Error
 			lastRespBody = result.ResponseBody
 			lastUpstreamURL = upstreamURL
-			log.Printf("proxy %s: provider %q failed, trying next", cliType, provider.Name)
+			slog.Warn("provider failed, trying next", "cli", cliType, "provider", provider.Name)
 		}
 
 		logger.Add(RequestLog{
@@ -209,7 +206,7 @@ func makeHandler(store *config.Store, logger *Logger, sessions *SessionStore, cl
 			Duration:     time.Since(start).Milliseconds(),
 			Error:        lastErr,
 			ResponseBody: lastRespBody,
-		}, 0, 0, 0)
+		})
 		http.Error(w, `{"error":{"message":"all providers failed for `+cliType+`"}}`, http.StatusBadGateway)
 	}
 }
@@ -354,7 +351,7 @@ func chatMessageToMap(msg ChatMessage) map[string]any {
 				if tcMap, ok := tcObj.(map[string]any); ok {
 					if fn, ok := tcMap["function"].(map[string]any); ok {
 						if name, ok := fn["name"].(string); ok {
-							fn["name"] = ensureMCPName(name)
+							fn["name"] = name // MCP namespace already in full name from history
 						}
 					}
 				}
@@ -741,8 +738,71 @@ type toolCallAccum struct {
 	itemID    string
 }
 
+const (
+	// upstreamMaxRetries is the max retry count for initial upstream connection failures.
+	upstreamMaxRetries = 3
+	// upstreamRetryBaseDelay is the base delay for exponential backoff on retry.
+	upstreamRetryBaseDelay = 1 * time.Second
+)
+
+// sharedUpstreamTransport is a shared http.Transport with optimized settings for SSE streaming.
+// Reused across all requests to benefit from connection pooling.
+// Key design choices:
+//   - Keep-alives enabled to prevent intermediate network devices (NAT, firewalls)
+//     from dropping idle TCP connections during long-running SSE streams.
+//   - TLS handshake timeout set generously since upstream providers may be slow on first connect.
+//   - IdleConnTimeout only affects pooled idle connections, NOT active SSE streams being read from.
+var sharedUpstreamTransport = &http.Transport{
+	ForceAttemptHTTP2:     true,
+	DisableKeepAlives:     false,
+	TLSHandshakeTimeout:   30 * time.Second,
+	ResponseHeaderTimeout: 60 * time.Second, // Abort if upstream stalls before sending any headers
+	MaxIdleConns:          100,
+	MaxIdleConnsPerHost:   10,
+	IdleConnTimeout:       90 * time.Second,
+}
+
+// isRetryableNetError checks if an error from http.Client.Do is a transient
+// network error worth retrying (connection refused, reset, DNS, TLS, etc.).
+// Context cancellation (client disconnect) is NOT retryable.
+func isRetryableNetError(err error) bool {
+	if err == nil {
+		return false
+	}
+	// Client disconnected — don't retry.
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	// net.Error with Timeout() == true is retryable.
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+	// net.OpError wraps most dial/read/write errors (connection refused, reset, etc.).
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return true
+	}
+	// Fallback: keyword match for edge-case error strings from various Go versions.
+	errMsg := err.Error()
+	for _, kw := range []string{
+		"connection reset",
+		"connection refused",
+		"broken pipe",
+		"unexpected EOF",
+		"server closed idle connection",
+		"i/o timeout",
+		"TLS handshake",
+	} {
+		if strings.Contains(errMsg, kw) {
+			return true
+		}
+	}
+	return false
+}
+
 // translateStream converts an upstream Chat Completions SSE stream into Responses API SSE.
-func translateStream(ctx context.Context, w http.ResponseWriter, resp *http.Response, flusher http.Flusher, canFlush bool, requestModel string, sessions *SessionStore, requestMessages []map[string]any, preResponseID string, keepAliveDone chan struct{}, writeMu *sync.Mutex, debug *atomic.Bool) (promptTokens, completionTokens, totalTokens int) {
+func translateStream(ctx context.Context, w http.ResponseWriter, resp *http.Response, flusher http.Flusher, canFlush bool, requestModel string, sessions *SessionStore, requestMessages []map[string]any, preResponseID string, keepAliveDone chan struct{}, writeMu *sync.Mutex) (promptTokens, completionTokens, totalTokens int) {
 	responseID := preResponseID
 	if responseID == "" {
 		responseID = sessions.NewID()
@@ -750,8 +810,13 @@ func translateStream(ctx context.Context, w http.ResponseWriter, resp *http.Resp
 	// msg_item_id uses an independent id, matching codex-relay (separate UUID)
 	msgItemID := fmt.Sprintf("msg_%d", time.Now().UnixNano())
 
-	flusher, canFlush = ensureFlusher(w, flusher)
-	headersSent := false
+	// Ensure we have a flusher for SSE streaming
+	if flusher == nil {
+		flusher, canFlush = w.(http.Flusher)
+	}
+	// When preResponseID is set, the caller (tryProvider) already sent headers
+	// and response.created before invoking translateStream — skip re-sending.
+	headersSent := preResponseID != ""
 
 	ensureHeaders := func() {
 		if headersSent {
@@ -778,10 +843,13 @@ func translateStream(ctx context.Context, w http.ResponseWriter, resp *http.Resp
 		b = append(b, `",`...)
 		b = append(b, fieldsJSON[1:]...)
 		if seq <= 10 || eventType == "response.completed" || eventType == "response.output_item.done" {
-			debugLog(debug, "[codex-sse] -> event #%d: %s (data=%s)", seq, eventType, string(b[:min(len(b), 300)]))
 		}
 		writeMu.Lock()
-		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, b)
+		if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, b); err != nil {
+			writeMu.Unlock()
+			slog.Error("codex-sse write error", "events", seq, "model", requestModel, "error", err)
+			return
+		}
 		if canFlush {
 			flusher.Flush()
 		}
@@ -814,6 +882,35 @@ func translateStream(ctx context.Context, w http.ResponseWriter, resp *http.Resp
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(nil, 500*1024*1024)
 
+	streamStart := time.Now()
+	// Track last upstream read activity for timeout detection.
+	// When the upstream enters a long thinking phase and the connection silently
+	// drops, bufio.Scanner.Scan() blocks indefinitely. This goroutine monitors
+	// read activity and closes resp.Body after 3 minutes of silence.
+	var lastActivityUnixNano int64 = time.Now().UnixNano()
+	stopMonitor := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopMonitor:
+				return
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				last := time.Unix(0, lastActivityUnixNano)
+				silence := time.Since(last)
+				if silence > 3*time.Minute {
+					slog.Warn("upstream read timeout, closing connection", "silence", silence.String(), "model", requestModel)
+					resp.Body.Close()
+					return
+				}
+			}
+		}
+	}()
+	defer close(stopMonitor)
+
 	// 监听客户端断开信号
 	go func() {
 		<-ctx.Done()
@@ -821,7 +918,9 @@ func translateStream(ctx context.Context, w http.ResponseWriter, resp *http.Resp
 	}()
 
 	chunkCount := 0
+	toolCallNames := make([]string, 0)
 	for scanner.Scan() {
+		lastActivityUnixNano = time.Now().UnixNano()
 		line := scanner.Text()
 		payload, ok := extractSSEData(line)
 		if !ok {
@@ -829,13 +928,11 @@ func translateStream(ctx context.Context, w http.ResponseWriter, resp *http.Resp
 		}
 		if payload == "[DONE]" {
 			streamDone = true
-			debugLog(debug, "[codex-sse] received [DONE] after %d chunks", chunkCount)
 			break
 		}
 
 		chunkCount++
 		if chunkCount <= 3 {
-			debugLog(debug, "[codex-sse] upstream chunk #%d: %s", chunkCount, payload[:min(len(payload), 300)])
 		}
 
 		var chunk struct {
@@ -864,7 +961,7 @@ func translateStream(ctx context.Context, w http.ResponseWriter, resp *http.Resp
 			} `json:"usage"`
 		}
 		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
-			log.Printf("[codex-sse] chunk parse error at #%d: %v", chunkCount, err)
+			slog.Error("codex-sse chunk parse error", "chunk", chunkCount, "error", err)
 			continue // 跳过这个 chunk，继续处理下一个
 		}
 		if len(chunk.Choices) == 0 {
@@ -947,17 +1044,50 @@ func translateStream(ctx context.Context, w http.ResponseWriter, resp *http.Resp
 		}
 	}
 
+	// Log stream diagnostics (matching codex-relay debug logging)
+	if len(toolCalls) > 0 {
+		tcNames := make([]string, 0, len(toolCalls))
+		for i := 0; i < len(toolCalls); i++ {
+			if tc, ok := toolCalls[i]; ok {
+				tcNames = append(tcNames, tc.name)
+			}
+		}
+		toolCallNames = tcNames
+	}
+	slog.Debug("stream completed",
+		"chunks", chunkCount,
+		"tool_calls", toolCallNames,
+		"duration", time.Since(streamStart).String(),
+		"done", streamDone,
+		"model", requestModel,
+	)
 
 	// Check for scanner errors (upstream connection drop, timeout, etc.)
 	if err := scanner.Err(); err != nil {
-		log.Printf("[codex-sse] scanner error after %d chunks: %v", chunkCount, err)
+		errCategory := "unknown"
+		switch {
+		case errors.Is(err, io.EOF):
+			errCategory = "EOF (upstream closed connection)"
+		case errors.Is(err, context.Canceled):
+			errCategory = "client_disconnected"
+		case errors.Is(err, context.DeadlineExceeded):
+			errCategory = "context_deadline"
+		default:
+			var netErr net.Error
+			if errors.As(err, &netErr) {
+				if netErr.Timeout() {
+					errCategory = "network_timeout"
+				} else {
+					errCategory = "network_error"
+				}
+			} else {
+				errCategory = "connection_reset"
+			}
+		}
+		slog.Error("codex-sse scanner error", "chunks", chunkCount, "done", streamDone, "category", errCategory, "model", requestModel, "error", err)
 	}
 	// --- Finalize ---
 	ensureHeaders()
-
-	debugLog(debug, "[codex-sse] finalize: chunks=%d msgItemID=%s toolCalls=%d textLen=%d reasoningLen=%d usage=%+v",
-		chunkCount, msgItemID, len(toolCalls), accumulatedText.Len(), accumulatedReasoning.Len(),
-		map[string]int{"prompt": streamUsage.prompt, "completion": streamUsage.completion, "total": streamUsage.total})
 
 	if !streamDone {
 		// Stream disconnected before [DONE]
@@ -1219,12 +1349,15 @@ func mapToChatMessage(m map[string]any) ChatMessage {
 
 // --- synthesizeResponsesSSE: non-streaming → SSE (for errors / non-streaming fallback) ---
 
-func synthesizeResponsesSSE(w http.ResponseWriter, respBody []byte, flusher http.Flusher, canFlush bool, requestModel string, sessions *SessionStore) (promptTokens, completionTokens, totalTokens int) {
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
-	w.WriteHeader(http.StatusOK)
+func synthesizeResponsesSSE(w http.ResponseWriter, respBody []byte, flusher http.Flusher, canFlush bool, requestModel string, sessions *SessionStore, preResponseID string) (promptTokens, completionTokens, totalTokens int) {
+	// Skip header setup if already sent by tryProvider (preResponseID != "")
+	if preResponseID == "" {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("X-Accel-Buffering", "no")
+		w.WriteHeader(http.StatusOK)
+	}
 
 	seq := 0
 	writeEvent := func(eventType string, data map[string]any) {
@@ -1235,7 +1368,9 @@ func synthesizeResponsesSSE(w http.ResponseWriter, respBody []byte, flusher http
 		b = append(b, eventType...)
 		b = append(b, `",`...)
 		b = append(b, fieldsJSON[1:]...)
-		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, b)
+		if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, b); err != nil {
+			slog.Error("synthesize-sse write error", "event", eventType, "error", err)
+		}
 		if canFlush {
 			flusher.Flush()
 		}
@@ -1253,7 +1388,9 @@ func synthesizeResponsesSSE(w http.ResponseWriter, respBody []byte, flusher http
 		} `json:"usage"`
 	}
 	if err := json.Unmarshal(respBody, &respData); err != nil {
-		fmt.Fprintf(w, "data: %s\n\n", respBody)
+		if _, err := fmt.Fprintf(w, "data: %s\n\n", respBody); err != nil {
+			slog.Error("synthesize-sse raw write error", "error", err)
+		}
 		if canFlush {
 			flusher.Flush()
 		}
@@ -1261,14 +1398,16 @@ func synthesizeResponsesSSE(w http.ResponseWriter, respBody []byte, flusher http
 		return
 	}
 
-	// Use request model, not upstream model
-	writeEvent("response.created", map[string]any{
-		"response": map[string]any{
-			"id":     respData.ID,
-			"status": "in_progress",
-			"model":  requestModel,
-		},
-	})
+	// Skip response.created if already sent by tryProvider (preResponseID != "")
+	if preResponseID == "" {
+		writeEvent("response.created", map[string]any{
+			"response": map[string]any{
+				"id":     respData.ID,
+				"status": "in_progress",
+				"model":  requestModel,
+			},
+		})
+	}
 
 	var outputItems []any
 	for i, rawItem := range respData.Output {
@@ -1353,9 +1492,7 @@ func synthesizeResponsesSSE(w http.ResponseWriter, respBody []byte, flusher http
 
 func withStatus(item map[string]any, status string) map[string]any {
 	cp := make(map[string]any, len(item))
-	for k, v := range item {
-		cp[k] = v
-	}
+	maps.Copy(cp, item)
 	cp["status"] = status
 	return cp
 }
@@ -1383,14 +1520,16 @@ func sendResponseCreated(w http.ResponseWriter, responseID, requestModel string,
 		},
 	})
 	writeMu.Lock()
-	fmt.Fprintf(w, "event: response.created\ndata: %s\n\n", data)
+	if _, err := fmt.Fprintf(w, "event: response.created\ndata: %s\n\n", data); err != nil {
+		slog.Error("response.created write error", "error", err)
+	}
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}
 	writeMu.Unlock()
 }
 
-func tryProvider(w http.ResponseWriter, r *http.Request, upstreamURL string, body []byte, provider *config.Provider, canFallback bool, convertToResponses bool, sessions *SessionStore, requestModel string, requestMessages []map[string]any, debug *atomic.Bool) tryProviderResult {
+func tryProvider(w http.ResponseWriter, r *http.Request, upstreamURL string, body []byte, provider *config.Provider, canFallback bool, convertToResponses bool, sessions *SessionStore, requestModel string, requestMessages []map[string]any) tryProviderResult {
 	var writeMu sync.Mutex
 	var reqBody io.Reader
 	if len(body) > 0 {
@@ -1434,7 +1573,11 @@ func tryProvider(w http.ResponseWriter, r *http.Request, upstreamURL string, bod
 					return
 				case <-ticker.C:
 					writeMu.Lock()
-					fmt.Fprintf(w, ": keep-alive\n\n")
+					if _, err := fmt.Fprintf(w, ": keep-alive\n\n"); err != nil {
+						writeMu.Unlock()
+						slog.Debug("keep-alive write error (client disconnected)", "error", err)
+						return
+					}
 					if f, ok := w.(http.Flusher); ok {
 						f.Flush()
 					}
@@ -1444,29 +1587,56 @@ func tryProvider(w http.ResponseWriter, r *http.Request, upstreamURL string, bod
 		}()
 	}
 
-	// 创建自定义 http.Client，不设置响应头超时（深度思考可能需要很长时间）
-	// 由请求 context 控制取消，避免上游长时间思考时连接被断开
+	// 使用优化的 Transport 配置，显式设置连接参数以适配长 SSE 流。
+	// http.Client.Timeout 保持为 0（不设超时），由请求 context 控制生命周期。
 	client := &http.Client{
-		Transport: &http.Transport{},
+		Transport: sharedUpstreamTransport,
 	}
-	upResp, err := client.Do(req)
-	if err != nil {
-		if keepAliveDone != nil {
-			close(keepAliveDone)
+
+	// 初始连接重试：仅对瞬态网络错误（连接拒绝、重置、TLS 超时等）进行重试，
+	// 客户端主动断开（context 取消）不重试。
+	var upResp *http.Response
+	for attempt := 0; attempt <= upstreamMaxRetries; attempt++ {
+		// 每次重试需要重建 request body（上一次 client.Do 可能已部分消费）
+		if attempt > 0 {
+			req.Body = io.NopCloser(bytes.NewReader(body))
+			req.ContentLength = int64(len(body))
+			delay := upstreamRetryBaseDelay * (1 << (attempt - 1))
+			select {
+			case <-r.Context().Done():
+				if keepAliveDone != nil {
+					close(keepAliveDone)
+				}
+				return tryProviderResult{Error: fmt.Sprintf("client disconnected during retry: %v", r.Context().Err())}
+			case <-time.After(delay):
+			}
 		}
-		return tryProviderResult{Error: fmt.Sprintf("upstream error: %v", err)}
+		upResp, err = client.Do(req)
+		if err == nil {
+			break
+		}
+		if !isRetryableNetError(err) || attempt == upstreamMaxRetries {
+			if keepAliveDone != nil {
+				close(keepAliveDone)
+			}
+			return tryProviderResult{Error: fmt.Sprintf("upstream error after %d attempt(s): %v", attempt+1, err)}
+		}
+		slog.Warn("upstream connection failed, retryable", "attempt", attempt+1, "max_retries", upstreamMaxRetries+1, "error", err)
 	}
 	defer upResp.Body.Close()
 
 	if isStream {
-		p, c, t := forwardStream(r.Context(), w, upResp, convertToResponses, sessions, requestModel, requestMessages, preResponseID, keepAliveDone, &writeMu, debug)
+		p, c, t := forwardStream(r.Context(), w, upResp, convertToResponses, sessions, requestModel, requestMessages, preResponseID, keepAliveDone, &writeMu)
 		if keepAliveDone != nil {
 			close(keepAliveDone)
 		}
 		return tryProviderResult{StatusCode: upResp.StatusCode, PromptTokens: p, CompletionTokens: c, TotalTokens: t}
 	}
 
-	respBody, _ := io.ReadAll(upResp.Body)
+	respBody, readErr := io.ReadAll(upResp.Body)
+	if readErr != nil {
+		slog.Error("upstream body read error", "status", upResp.StatusCode, "model", requestModel, "error", readErr)
+	}
 
 	if canFallback && upResp.StatusCode >= 500 {
 		return tryProviderResult{ResponseBody: sanitizeResponseBody(respBody)}
@@ -1484,7 +1654,9 @@ func tryProvider(w http.ResponseWriter, r *http.Request, upstreamURL string, bod
 		w.Header().Set("Content-Type", "application/json")
 	}
 	w.WriteHeader(upResp.StatusCode)
-	w.Write(respBody)
+	if _, err := w.Write(respBody); err != nil {
+		slog.Error("response write error", "model", requestModel, "error", err)
+	}
 	if flusher, ok := w.(http.Flusher); ok {
 		flusher.Flush()
 	}
@@ -1499,7 +1671,7 @@ func tryProvider(w http.ResponseWriter, r *http.Request, upstreamURL string, bod
 }
 
 // forwardStream forwards the upstream SSE response, optionally converting to Responses API format.
-func forwardStream(ctx context.Context, w http.ResponseWriter, resp *http.Response, convert bool, sessions *SessionStore, requestModel string, requestMessages []map[string]any, preResponseID string, keepAliveDone chan struct{}, writeMu *sync.Mutex, debug *atomic.Bool) (promptTokens, completionTokens, totalTokens int) {
+func forwardStream(ctx context.Context, w http.ResponseWriter, resp *http.Response, convert bool, sessions *SessionStore, requestModel string, requestMessages []map[string]any, preResponseID string, keepAliveDone chan struct{}, writeMu *sync.Mutex) (promptTokens, completionTokens, totalTokens int) {
 	flusher, canFlush := w.(http.Flusher)
 
 	if convert {
@@ -1512,11 +1684,11 @@ func forwardStream(ctx context.Context, w http.ResponseWriter, resp *http.Respon
 				model = "unknown"
 			}
 			responseID := preResponseID
-	if responseID == "" {
-		responseID = sessions.NewID()
-	}
+			if responseID == "" {
+				responseID = sessions.NewID()
+			}
 			convertedBody, _ := fromChatResponse(respBody, responseID, model, sessions)
-			p, c, t := synthesizeResponsesSSE(w, convertedBody, flusher, canFlush, model, sessions)
+			p, c, t := synthesizeResponsesSSE(w, convertedBody, flusher, canFlush, model, sessions, preResponseID)
 			return p, c, t
 		}
 		// For streaming mode
@@ -1524,7 +1696,7 @@ func forwardStream(ctx context.Context, w http.ResponseWriter, resp *http.Respon
 		if model == "" {
 			model = "unknown"
 		}
-		p, c, t := translateStream(ctx, w, resp, flusher, canFlush, model, sessions, requestMessages, preResponseID, keepAliveDone, writeMu, debug)
+		p, c, t := translateStream(ctx, w, resp, flusher, canFlush, model, sessions, requestMessages, preResponseID, keepAliveDone, writeMu)
 		return p, c, t
 	}
 
@@ -1551,7 +1723,10 @@ func forwardStream(ctx context.Context, w http.ResponseWriter, resp *http.Respon
 					return
 				case <-ticker.C:
 					writeMu.Lock()
-					fmt.Fprintf(w, ": keep-alive\n\n")
+					if _, err := fmt.Fprintf(w, ": keep-alive\n\n"); err != nil {
+						writeMu.Unlock()
+						return
+					}
 					flusher.Flush()
 					writeMu.Unlock()
 				}
@@ -1562,16 +1737,50 @@ func forwardStream(ctx context.Context, w http.ResponseWriter, resp *http.Respon
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(nil, 500*1024*1024)
 
+	// Upstream read timeout detection for passthrough mode
+	fwdStart := time.Now()
+	var fwdLastActivityUnixNano int64 = time.Now().UnixNano()
+	fwdStopMonitor := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-fwdStopMonitor:
+				return
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				last := time.Unix(0, fwdLastActivityUnixNano)
+				silence := time.Since(last)
+				if silence > 3*time.Minute {
+					slog.Warn("upstream passthrough read timeout, closing connection", "silence", silence.String(), "model", requestModel)
+					resp.Body.Close()
+					return
+				}
+			}
+		}
+	}()
+	defer close(fwdStopMonitor)
+
 	// 监听客户端断开信号
 	go func() {
 		<-ctx.Done()
 		resp.Body.Close()
 	}()
 
+	fwdChunkCount := 0
 	for scanner.Scan() {
+		fwdLastActivityUnixNano = time.Now().UnixNano()
+		fwdChunkCount++
 		line := scanner.Text()
 		writeMu.Lock()
-		fmt.Fprintf(w, "%s\n", line)
+		if _, err := fmt.Fprintf(w, "%s\n", line); err != nil {
+			writeMu.Unlock()
+			slog.Error("passthrough write error, client disconnected", "model", requestModel, "error", err)
+			resp.Body.Close()
+			break
+		}
 		if line == "" {
 			if canFlush {
 				flusher.Flush()
@@ -1580,8 +1789,33 @@ func forwardStream(ctx context.Context, w http.ResponseWriter, resp *http.Respon
 		writeMu.Unlock()
 	}
 	if err := scanner.Err(); err != nil {
-		log.Printf("proxy: passthrough scanner error: %v", err)
+		errCategory := "unknown"
+		switch {
+		case errors.Is(err, io.EOF):
+			errCategory = "EOF (upstream closed connection)"
+		case errors.Is(err, context.Canceled):
+			errCategory = "client_disconnected"
+		case errors.Is(err, context.DeadlineExceeded):
+			errCategory = "context_deadline"
+		default:
+			var netErr net.Error
+			if errors.As(err, &netErr) {
+				if netErr.Timeout() {
+					errCategory = "network_timeout"
+				} else {
+					errCategory = "network_error"
+				}
+			} else {
+				errCategory = "connection_reset"
+			}
+		}
+		slog.Error("passthrough scanner error", "category", errCategory, "model", requestModel, "error", err)
 	}
+	slog.Debug("passthrough stream completed",
+		"chunks", fwdChunkCount,
+		"duration", time.Since(fwdStart).String(),
+		"model", requestModel,
+	)
 	if passthroughKeepAliveDone != nil {
 		close(passthroughKeepAliveDone)
 	}
@@ -1592,16 +1826,6 @@ func forwardStream(ctx context.Context, w http.ResponseWriter, resp *http.Respon
 }
 
 // --- Utility functions ---
-
-func ensureFlusher(w http.ResponseWriter, flusher http.Flusher) (http.Flusher, bool) {
-	if flusher != nil {
-		return flusher, true
-	}
-	if f, ok := w.(http.Flusher); ok {
-		return f, true
-	}
-	return nil, false
-}
 
 func isStreamingRequest(body []byte) bool {
 	if len(body) == 0 {
@@ -1857,7 +2081,7 @@ func convertTools(tools []any) []any {
 	return result
 }
 
-func transformBody(body []byte, provider *config.Provider, debug *atomic.Bool) []byte {
+func transformBody(body []byte, provider *config.Provider) []byte {
 	if len(body) == 0 {
 		return body
 	}
@@ -1885,7 +2109,6 @@ func transformBody(body []byte, provider *config.Provider, debug *atomic.Bool) [
 	if newModel == "" || newModel == currentModel {
 		return body
 	}
-	debugLog(debug, "proxy: model transform %q -> %q (provider: %s)", currentModel, newModel, provider.Name)
 	m["model"] = newModel
 	out, err := json.Marshal(m)
 	if err != nil {
@@ -1957,15 +2180,6 @@ func extractBearerToken(r *http.Request) string {
 		return auth[7:]
 	}
 	return auth
-}
-
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
 }
 
 func extractTokenUsage(body []byte) (int, int, int) {

@@ -112,10 +112,10 @@ func (db *DB) createTables() error {
 
 func (db *DB) migrateTables() error {
 	columns := map[string]string{
-		"providers.prompt_tokens":     "ALTER TABLE providers ADD COLUMN prompt_tokens INTEGER DEFAULT 0",
-		"providers.completion_tokens": "ALTER TABLE providers ADD COLUMN completion_tokens INTEGER DEFAULT 0",
-		"providers.total_tokens":      "ALTER TABLE providers ADD COLUMN total_tokens INTEGER DEFAULT 0",
-		"providers.usage_updated_at":  "ALTER TABLE providers ADD COLUMN usage_updated_at INTEGER DEFAULT 0",
+		"providers.prompt_tokens":        "ALTER TABLE providers ADD COLUMN prompt_tokens INTEGER DEFAULT 0",
+		"providers.completion_tokens":    "ALTER TABLE providers ADD COLUMN completion_tokens INTEGER DEFAULT 0",
+		"providers.total_tokens":         "ALTER TABLE providers ADD COLUMN total_tokens INTEGER DEFAULT 0",
+		"providers.usage_updated_at":     "ALTER TABLE providers ADD COLUMN usage_updated_at INTEGER DEFAULT 0",
 		"request_logs.provider_id":       "ALTER TABLE request_logs ADD COLUMN provider_id TEXT",
 		"request_logs.upstream_url":      "ALTER TABLE request_logs ADD COLUMN upstream_url TEXT",
 		"providers.auth_token":           "ALTER TABLE providers ADD COLUMN auth_token TEXT",

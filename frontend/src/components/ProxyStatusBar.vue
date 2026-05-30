@@ -378,4 +378,11 @@ async function copyConfig() {
   to { transform: rotate(360deg); }
 }
 
+
+/* 统一 SVG 图标颜色，不受主题文字色影响 */
+.status-row .n-button :deep(svg),
+.cli-write-btn svg {
+  color: var(--app-text-3);
+  stroke: var(--app-text-3);
+}
 </style>

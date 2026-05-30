@@ -4,13 +4,11 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 )
 
@@ -305,7 +303,7 @@ func TestChatToResponses_ReasoningContent(t *testing.T) {
 	if !ok {
 		t.Fatal("output not found")
 	}
-	// fromChatResponse matches codex-relay: reasoning is stored in session, 
+	// fromChatResponse matches codex-relay: reasoning is stored in session,
 	// not emitted as a separate output item. Only message output is present.
 	if len(output) < 1 {
 		t.Fatalf("expected at least 1 output item, got %d", len(output))
@@ -638,18 +636,17 @@ func TestConvertTools_Empty(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func buildSSEResponse(lines []string) *http.Response {
-	sseData := ""
+	var sseData strings.Builder
 	for _, line := range lines {
-		sseData += "data: " + line + "\n\n"
+		sseData.WriteString("data: " + line + "\n\n")
 	}
-	sseData += "data: [DONE]\n\n"
+	sseData.WriteString("data: [DONE]\n\n")
 	return &http.Response{
 		StatusCode: 200,
 		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
-		Body:       io.NopCloser(strings.NewReader(sseData)),
+		Body:       io.NopCloser(strings.NewReader(sseData.String())),
 	}
 }
-
 
 func captureSSEOutput(rec *httptest.ResponseRecorder) []string {
 	var events []string
@@ -658,10 +655,10 @@ func captureSSEOutput(rec *httptest.ResponseRecorder) []string {
 	var currentEvent string
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.HasPrefix(line, "event: ") {
-			currentEvent = strings.TrimPrefix(line, "event: ")
-		} else if strings.HasPrefix(line, "data: ") {
-			events = append(events, currentEvent+":"+strings.TrimPrefix(line, "data: "))
+		if after, ok := strings.CutPrefix(line, "event: "); ok {
+			currentEvent = after
+		} else if after, ok := strings.CutPrefix(line, "data: "); ok {
+			events = append(events, currentEvent+":"+after)
 		}
 	}
 	return events
@@ -676,7 +673,7 @@ func TestConvertStreamSSE_PureText(t *testing.T) {
 	}
 	resp := buildSSEResponse(chunks)
 	rec := httptest.NewRecorder()
-	p, c, total := translateStream(context.Background(), rec, resp, rec, true, "gpt-4o", NewSessionStore(), nil, "", nil, new(sync.Mutex), new(atomic.Bool))
+	p, c, total := translateStream(context.Background(), rec, resp, rec, true, "gpt-4o", NewSessionStore(), nil, "", nil, new(sync.Mutex))
 
 	_ = p
 	_ = c
@@ -722,7 +719,7 @@ func TestConvertStreamSSE_Reasoning(t *testing.T) {
 	}
 	resp := buildSSEResponse(chunks)
 	rec := httptest.NewRecorder()
-	translateStream(context.Background(), rec, resp, rec, true, "gpt-4o", NewSessionStore(), nil, "", nil, new(sync.Mutex), new(atomic.Bool))
+	translateStream(context.Background(), rec, resp, rec, true, "gpt-4o", NewSessionStore(), nil, "", nil, new(sync.Mutex))
 
 	events := captureSSEOutput(rec)
 	hasReasoningDelta := false
@@ -759,7 +756,7 @@ func TestConvertStreamSSE_ToolCalls(t *testing.T) {
 	}
 	resp := buildSSEResponse(chunks)
 	rec := httptest.NewRecorder()
-	translateStream(context.Background(), rec, resp, rec, true, "gpt-4o", NewSessionStore(), nil, "", nil, new(sync.Mutex), new(atomic.Bool))
+	translateStream(context.Background(), rec, resp, rec, true, "gpt-4o", NewSessionStore(), nil, "", nil, new(sync.Mutex))
 
 	events := captureSSEOutput(rec)
 	hasFuncCall := false
@@ -780,7 +777,7 @@ func TestConvertStreamSSE_Incomplete(t *testing.T) {
 	}
 	resp := buildSSEResponse(chunks)
 	rec := httptest.NewRecorder()
-	translateStream(context.Background(), rec, resp, rec, true, "gpt-4o", NewSessionStore(), nil, "", nil, new(sync.Mutex), new(atomic.Bool))
+	translateStream(context.Background(), rec, resp, rec, true, "gpt-4o", NewSessionStore(), nil, "", nil, new(sync.Mutex))
 
 	events := captureSSEOutput(rec)
 	hasIncomplete := false
@@ -797,7 +794,6 @@ func TestConvertStreamSSE_Incomplete(t *testing.T) {
 	}
 }
 
-
 func TestConvertStreamSSE_ReasoningOnly(t *testing.T) {
 	// 模拟纯推理模型：只有 reasoning_content，没有 content。
 	// 对齐 codex-relay：reasoning 不发射 SSE 事件，仅内部累积。
@@ -810,7 +806,7 @@ func TestConvertStreamSSE_ReasoningOnly(t *testing.T) {
 	}
 	resp := buildSSEResponse(chunks)
 	rec := httptest.NewRecorder()
-	translateStream(context.Background(), rec, resp, rec, true, "gpt-4o", NewSessionStore(), nil, "", nil, new(sync.Mutex), new(atomic.Bool))
+	translateStream(context.Background(), rec, resp, rec, true, "gpt-4o", NewSessionStore(), nil, "", nil, new(sync.Mutex))
 
 	events := captureSSEOutput(rec)
 
@@ -839,7 +835,7 @@ func TestConvertStreamSSE_ReasoningOnly(t *testing.T) {
 		t.Error("completed output should contain message item")
 	}
 	// 推理文本不出现在输出中（仅在内部累积）
-	fmt.Println("ReasoningOnly completed body (first 500):", completedBody[:min(len(completedBody), 500)])
+	t.Log("ReasoningOnly completed body (first 500):", completedBody[:min(len(completedBody), 500)])
 }
 
 func TestConvertStreamSSE_EmptyStream(t *testing.T) {
@@ -848,7 +844,7 @@ func TestConvertStreamSSE_EmptyStream(t *testing.T) {
 	}
 	resp := buildSSEResponse(chunks)
 	rec := httptest.NewRecorder()
-	p, c, total := translateStream(context.Background(), rec, resp, rec, true, "gpt-4o", NewSessionStore(), nil, "", nil, new(sync.Mutex), new(atomic.Bool))
+	p, c, total := translateStream(context.Background(), rec, resp, rec, true, "gpt-4o", NewSessionStore(), nil, "", nil, new(sync.Mutex))
 
 	if p != 0 || c != 0 || total != 0 {
 		t.Errorf("expected zero tokens for empty stream, got p=%d c=%d t=%d", p, c, total)
@@ -858,7 +854,7 @@ func TestConvertStreamSSE_EmptyStream(t *testing.T) {
 	if !strings.Contains(body, "response.completed") {
 		t.Error("expected response.completed event even for empty stream")
 	}
-	fmt.Println("Empty stream body:", body[:min(len(body), 500)])
+	t.Log("Empty stream body:", body[:min(len(body), 500)])
 }
 
 // ---------------------------------------------------------------------------
@@ -901,5 +897,3 @@ func TestEnsureStreamOptions_NonStream(t *testing.T) {
 		t.Error("expected no change for non-stream request")
 	}
 }
-
-

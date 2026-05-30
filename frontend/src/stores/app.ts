@@ -88,6 +88,11 @@ export const useAppStore = defineStore('app', () => {
   const totalTokens = ref(0)
   const loading = ref(false)
 
+  const MAX_DISPLAY_LOGS = 500
+
+  // 记录上次获取的最大 ID，用于增量拉取
+  let lastLogId = ''
+
   let statusTimer: ReturnType<typeof setInterval> | null = null
 
   function startStatusPolling() {
@@ -96,39 +101,50 @@ export const useAppStore = defineStore('app', () => {
   }
 
   async function fetchProxyStatus() {
-    proxyStatus.value = await App.ProxyStatus()
+    try {
+      proxyStatus.value = await App.ProxyStatus()
+    } catch {
+      // 静默处理
+    }
   }
 
   async function fetchProviders() {
-    providers.value = await App.ProviderList() as any
+    try {
+      providers.value = await App.ProviderList() as any
+    } catch {
+      // 静默处理
+    }
   }
 
-
   async function fetchProviderUsageStats() {
-    await fetchProviders()
-    providerUsageStats.value = providers.value.map(provider => ({
-      provider_id: provider.id,
-      provider: provider.name,
-      prompt_tokens: provider.prompt_tokens || 0,
-      completion_tokens: provider.completion_tokens || 0,
-      total_tokens: provider.total_tokens || 0,
-      updated_at: provider.usage_updated_at || 0,
-    }))
+    try {
+      await fetchProviders()
+      providerUsageStats.value = providers.value.map(provider => ({
+        provider_id: provider.id,
+        provider: provider.name,
+        prompt_tokens: provider.prompt_tokens || 0,
+        completion_tokens: provider.completion_tokens || 0,
+        total_tokens: provider.total_tokens || 0,
+        updated_at: provider.usage_updated_at || 0,
+      }))
+    } catch {
+      // 静默处理
+    }
   }
 
   async function fetchProviderUsageSeries(providerID: string) {
     return await App.GetProviderUsageSeries(providerID)
   }
 
+  // Task 4: fetchAll 不阻塞 UI，loading 仅用于首次加载指示
+  // Task 5: 所有请求并发执行
   async function fetchAll() {
     loading.value = true
     try {
-      await Promise.race([
-        Promise.all([fetchProxyStatus(), fetchProviderUsageStats()]),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 10_000)),
+      await Promise.allSettled([
+        fetchProxyStatus(),
+        fetchProviderUsageStats(),
       ])
-    } catch {
-      // 加载失败时保持现有数据，静默处理
     } finally {
       loading.value = false
     }
@@ -164,17 +180,64 @@ export const useAppStore = defineStore('app', () => {
     await fetchProxyStatus()
   }
 
+  // Task 5: 日志增量获取（由于 Wails 绑定限制，使用前端过滤实现增量）
   async function fetchLogs() {
-    logs.value = ((await App.GetProxyLogs()) || []) as any
-    logsSizeKB.value = await App.GetProxyLogsSizeKB()
-    totalTokens.value = logs.value.reduce((sum, log) => sum + (log.total_tokens || 0), 0)
+    // 获取所有日志
+    const data = await App.GetProxyLogDataWithLimit(500)
+    const allLogs = (data.logs || []) as any
+    
+    if (allLogs.length === 0) {
+      return
+    }
+
+    // 如果是首次获取（lastLogId 为空），直接使用所有日志
+    if (!lastLogId) {
+      logs.value = allLogs.slice(0, MAX_DISPLAY_LOGS)
+      lastLogId = allLogs[0].id // 更新为最新的 ID
+    } else {
+      // 过滤出比 lastLogId 更新的日志
+      // 注意：后端返回的是倒序（最新的在前），所以我们需要找到比 lastLogId 更新的
+      const lastIdNum = parseInt(lastLogId)
+      const newLogs = allLogs.filter((log: any) => parseInt(log.id) > lastIdNum)
+      
+      if (newLogs.length > 0) {
+        // 追加新日志到列表头部
+        logs.value = [...newLogs, ...logs.value].slice(0, MAX_DISPLAY_LOGS)
+        // 更新 lastLogId 为最新的 ID
+        lastLogId = newLogs[0].id
+      }
+    }
+
+    logsSizeKB.value = data.sizeKB || 0
+    totalTokens.value = data.totalUsed || 0
+  }
+
+  // 按日期范围过滤日志（使用已验证可用的 GetProxyLogData + 前端过滤）
+  async function fetchLogsByTimeRange(from: number, to: number) {
+    try {
+      const data = await App.GetProxyLogData()
+      const allLogs = (data.logs || []) as any[]
+      const filtered = allLogs.filter((log: any) => log.time >= from && log.time <= to)
+      logs.value = filtered.slice(0, MAX_DISPLAY_LOGS)
+      lastLogId = ''
+      logsSizeKB.value = data.sizeKB || 0
+      totalTokens.value = data.totalUsed || 0
+    } catch {
+      // Silent
+    }
+  }
+
+  // Clear local log data only (no IPC call), used when switching to logs tab
+  function clearLogsLocal() {
+    logs.value = []
+    logsSizeKB.value = 0
+    totalTokens.value = 0
+    lastLogId = ''
   }
 
   async function clearLogs() {
     await App.ClearProxyLogs()
-    logs.value = []
-    logsSizeKB.value = 0
-    totalTokens.value = 0
+    clearLogsLocal()
   }
 
   async function startProxy() {
@@ -210,5 +273,7 @@ export const useAppStore = defineStore('app', () => {
     fetchProviderUsageStats,
     fetchProviderUsageSeries,
     clearLogs,
+    fetchLogsByTimeRange,
+    clearLogsLocal,
   }
 })

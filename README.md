@@ -51,7 +51,7 @@ make build-darwin-universal # macOS Universal（arm64 + amd64）
 # 其他命令
 make clean                # 清理构建产物
 make test                 # 运行测试
-make lint                 # 代码检查
+make fmt                  # 格式化 + 代码检查
 make info                 # 显示构建信息
 ```
 
@@ -99,6 +99,16 @@ bin\RelayAI.exe
 # Linux
 ./bin/RelayAI
 ```
+
+## macOS 安装提示
+
+macOS 未签名的应用在首次打开时可能提示 **"RelayAI" 已损坏，无法打开**。这是 Gatekeeper 安全机制导致的，并非文件实际损坏。解决方法：
+
+```bash
+sudo xattr -r -d com.apple.quarantine /Applications/RelayAI.app
+```
+
+或在 Finder 中右键点击应用 → 选择「打开」→ 在弹窗中确认「打开」。
 
 ## 开发
 

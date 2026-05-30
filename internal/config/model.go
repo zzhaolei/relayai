@@ -36,13 +36,6 @@ type AppSettings struct {
 	Providers []Provider `json:"providers"`
 }
 
-func DefaultSettings() *AppSettings {
-	return &AppSettings{
-		Port:      18900,
-		Providers: []Provider{},
-	}
-}
-
 func NewProvider(name, baseURL, apiKey string) Provider {
 	return Provider{
 		ID:        generateID(),

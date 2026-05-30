@@ -3,14 +3,13 @@ package main
 import (
 	"embed"
 	"fmt"
+	"log/slog"
 	"os"
-	"log"
-	"runtime"
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
-	"relay-ai/internal/singleinstance"
 	"github.com/wailsapp/wails/v3/pkg/events"
+	"relay-ai/internal/singleinstance"
 )
 
 //go:embed all:frontend/dist
@@ -25,7 +24,7 @@ var trayIcon []byte
 func main() {
 	unlock, err := singleinstance.LockFile()
 	if err != nil {
-		fmt.Println(err)
+		slog.Error("instance already running", "error", err)
 		os.Exit(1)
 	}
 	defer unlock()
@@ -51,13 +50,22 @@ func main() {
 	})
 
 	win := a.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:     "RelayAI",
-		Width:     900,
-		Height:    640,
-		MinWidth:  800,
-		MinHeight: 600,
-		BackgroundColour: application.NewRGB(245, 247, 250),
-		URL:       "/",
+		Title:            "RelayAI",
+		Width:            900,
+		Height:           640,
+		MinWidth:         800,
+		MinHeight:        600,
+		BackgroundColour: application.NewRGBA(0, 0, 0, 0),
+		URL:              "/",
+		Mac: application.MacWindow{
+			TitleBar: application.MacTitleBar{
+				AppearsTransparent:   true,
+				HideTitle:            true,
+				FullSizeContent:      true,
+				HideToolbarSeparator: true,
+			},
+			InvisibleTitleBarHeight: 40,
+		},
 	})
 
 	app.setWindow(win)
@@ -75,10 +83,7 @@ func main() {
 	})
 
 	tray := a.SystemTray.New()
-	tray.SetIcon(appIcon)
-	if runtime.GOOS == "darwin" {
-		tray.SetTemplateIcon(trayIcon)
-	}
+	tray.SetIcon(trayIcon)
 	tray.SetTooltip("RelayAI")
 
 	var statusItem, toggleItem, tokenItem *application.MenuItem
@@ -138,12 +143,13 @@ func main() {
 	}()
 
 	if err := app.initProxy(); err != nil {
-		log.Printf("failed to start proxy: %v", err)
+		slog.Error("failed to start proxy", "error", err)
 	}
 
 	err = a.Run()
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("application run failed", "error", err)
+		os.Exit(1)
 	}
 }
 

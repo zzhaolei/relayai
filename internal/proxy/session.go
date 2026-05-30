@@ -8,8 +8,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"relay-ai/internal/config"
 )
 
 const (
@@ -20,19 +18,19 @@ const (
 
 // ChatMessage mirrors codex-relay's ChatMessage for session storage.
 type ChatMessage struct {
-	Role             string           `json:"role"`
-	Content          json.RawMessage  `json:"content,omitempty"`
-	ReasoningContent *string          `json:"reasoning_content,omitempty"`
+	Role             string            `json:"role"`
+	Content          json.RawMessage   `json:"content,omitempty"`
+	ReasoningContent *string           `json:"reasoning_content,omitempty"`
 	ToolCalls        []json.RawMessage `json:"tool_calls,omitempty"`
-	ToolCallID       *string          `json:"tool_call_id,omitempty"`
-	Name             *string          `json:"name,omitempty"`
+	ToolCallID       *string           `json:"tool_call_id,omitempty"`
+	Name             *string           `json:"name,omitempty"`
 }
 
 type sessionEntry struct {
-	messages    []ChatMessage
-	bytes       int
-	lastUsedAt  time.Time
-	orderElem   *list.Element
+	messages   []ChatMessage
+	bytes      int
+	lastUsedAt time.Time
+	orderElem  *list.Element
 }
 
 type reasoningEntry struct {
@@ -47,8 +45,8 @@ type reasoningEntry struct {
 type SessionStore struct {
 	mu sync.Mutex
 
-	sessions    map[string]*sessionEntry
-	sessionLRU  *list.List
+	sessions   map[string]*sessionEntry
+	sessionLRU *list.List
 
 	reasoning    map[string]*reasoningEntry
 	reasoningLRU *list.List
@@ -60,8 +58,6 @@ type SessionStore struct {
 	maxSessions    int
 	maxStoredBytes int
 	ttl            time.Duration
-
-	providers []config.Provider // for model transforms in history replay
 }
 
 // NewSessionStore creates a SessionStore with default limits.
@@ -90,13 +86,6 @@ func newSessionStoreWithLimits(maxSessions, maxStoredBytes int, ttl time.Duratio
 		maxStoredBytes:   maxStoredBytes,
 		ttl:              ttl,
 	}
-}
-
-// SetProviders lets the session store access model mappings for history replay.
-func (s *SessionStore) SetProviders(providers []config.Provider) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.providers = providers
 }
 
 // GetHistory retrieves message history for a previous response_id.

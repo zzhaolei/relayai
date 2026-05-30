@@ -3,10 +3,9 @@ package proxy
 import (
 	"database/sql"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"sync"
-	"sync/atomic"
 
 	"relay-ai/internal/config"
 )
@@ -25,7 +24,6 @@ type Server struct {
 	store      *config.Store
 	logger     *Logger
 	sessions   *SessionStore
-	debug      atomic.Bool
 }
 
 func New(store *config.Store, db *sql.DB) *Server {
@@ -35,7 +33,10 @@ func New(store *config.Store, db *sql.DB) *Server {
 		logger:   NewLogger(db),
 		sessions: NewSessionStore(),
 	}
-	s.debug.Store(store.GetDebugMode())
+	// Sync slog level with persisted debug mode on startup
+	if store.GetDebugMode() {
+		logLevel.Set(slog.LevelDebug)
+	}
 	return s
 }
 
@@ -49,7 +50,7 @@ func (s *Server) Start() error {
 
 	s.port = s.store.GetPort()
 	addr := fmt.Sprintf("127.0.0.1:%d", s.port)
-	handler := newRouter(s.store, s.logger, s.sessions, &s.debug)
+	handler := newRouter(s.store, s.logger, s.sessions)
 
 	s.httpServer = &http.Server{
 		Addr:         addr,
@@ -58,9 +59,9 @@ func (s *Server) Start() error {
 	}
 
 	go func() {
-		log.Printf("proxy starting on %s", addr)
+		slog.Info("proxy starting", "addr", addr)
 		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("proxy error: %v", err)
+			slog.Error("proxy error", "error", err)
 		}
 	}()
 
@@ -107,6 +108,18 @@ func (s *Server) GetLogs() []RequestLog {
 	return s.logger.GetLogs()
 }
 
+func (s *Server) GetLogsWithLimit(limit int) []RequestLog {
+	return s.logger.GetLogsWithLimit(limit)
+}
+
+func (s *Server) GetLogsSince(lastID string) []RequestLog {
+	return s.logger.GetLogsSince(lastID)
+}
+
+func (s *Server) GetLogsByTimeRange(from, to int64) []RequestLog {
+	return s.logger.GetLogsByTimeRange(from, to)
+}
+
 func (s *Server) GetProviderUsageStats() []ProviderUsageStats {
 	return s.logger.GetProviderUsageStats()
 }
@@ -127,12 +140,11 @@ func (s *Server) GetLogsSizeKB() int64 {
 	return s.logger.GetSizeKB()
 }
 
-// SetDebug enables or disables debug logging.
+// SetDebug enables or disables debug logging by adjusting the slog level.
 func (s *Server) SetDebug(enabled bool) {
-	s.debug.Store(enabled)
-}
-
-// IsDebug returns whether debug logging is enabled.
-func (s *Server) IsDebug() bool {
-	return s.debug.Load()
+	if enabled {
+		logLevel.Set(slog.LevelDebug)
+	} else {
+		logLevel.Set(slog.LevelInfo)
+	}
 }
