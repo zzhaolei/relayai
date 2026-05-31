@@ -1,6 +1,6 @@
 # RelayAI
 
-将多厂商 AI 模型订阅转换为 Claude / Codex 可用接口。
+将多厂商 AI 模型订阅转换为 Claude / Codex 可用接口。基于 [Wails v3](https://wails.io/docs/next/guides/installation) 构建的桌面应用，支持 macOS、Windows、Linux。
 
 ## 界面预览
 
@@ -8,137 +8,106 @@
 | :-----------------------------------------------: | :--------------------------------------------: |
 | ![主界面](assets/screenshots/main.png) | ![添加提供商](assets/screenshots/add.png) |
 
-## 前置依赖
+## 使用方式
 
-- Go 1.26+
-- Node.js 18+
-- [Wails v3](https://wails.io/docs/next/guides/installation)（用于构建）
+1. 添加提供商：填写名称、Base URL、API Key，选择 CLI 平台
+2. 点击「写入配置」将代理地址写入 `~/.claude/settings.json` 或 `~/.codex/config.toml`
+3. 启动代理服务
+4. 直接使用 Claude CLI 或 Codex CLI，请求会自动通过代理转发
 
-安装工具依赖：
+代理会根据请求路径自动路由：
 
-```bash
-go install tool
-```
+| 路径 | CLI | 说明 |
+|------|-----|------|
+| `/anthropic/*` | Claude | 直接透传 Anthropic 格式 |
+| `/openai/*` | Codex | Responses API ↔ Chat Completions（开启兼容模式时） |
+| `/health` | — | 健康检查 |
 
-## 快速开始
+## 安装
 
-```bash
-# 查看所有可用命令
-make help
+### 下载预编译版本
 
-# 安装依赖
-make install
+从 [Releases](../../releases) 页面下载对应平台的安装包。
 
-# 启动开发模式（热更新）
-make dev
-```
+### macOS 安装提示
 
-## 构建
-
-### 使用 Make（推荐）
-
-```bash
-# 构建当前平台（macOS 自动打包为 .app，其他平台生成可执行文件）
-make build
-
-# 构建并运行
-make run
-
-# 构建指定平台
-make build-darwin         # macOS .app 包
-make build-windows        # Windows 可执行文件
-make build-linux          # Linux 可执行文件
-
-# 构建指定架构
-make build-darwin-arm64   # macOS Apple Silicon
-make build-darwin-amd64   # macOS Intel
-make build-darwin-universal # macOS Universal（arm64 + amd64）
-
-# 其他命令
-make clean                # 清理构建产物
-make test                 # 运行测试
-make fmt                  # 格式化 + 代码检查
-make info                 # 显示构建信息
-```
-
-### 使用 Wails3（高级）
-
-```bash
-# macOS — 产出 .app 包
-wails3 task darwin:package                # 当前架构
-wails3 task darwin:package ARCH=arm64     # Apple Silicon，需 macOS 或 Docker
-wails3 task darwin:package ARCH=amd64     # Intel，需 macOS 或 Docker
-wails3 task darwin:package:universal      # Universal（arm64+amd64）
-
-# Windows — 产出 .exe 二进制
-wails3 task windows:build ARCH=amd64      # 任意主机均可交叉编译
-wails3 task windows:build ARCH=arm64
-
-# Linux — 产出二进制
-wails3 task linux:build ARCH=amd64        # 需 Linux 原生或 Docker
-wails3 task linux:build ARCH=arm64
-```
-
-> 跨 OS 构建前准备 Docker 镜像（一次性）：
->
-> ```bash
-> make setup-docker
-> # 或
-> wails3 task setup:docker
-> ```
->
-> **规则**：macOS 目标只能用 macOS 或 Docker；Linux 目标需要 Linux 原生或 Docker；Windows 任意主机均可 Go 原生交叉编译。
-
-## 运行
-
-```bash
-# 构建并运行（推荐）
-make run
-
-# 或手动运行
-# macOS
-open bin/RelayAI.app
-
-# Windows
-bin\RelayAI.exe
-
-# Linux
-./bin/RelayAI
-```
-
-## macOS 安装提示
-
-macOS 未签名的应用在首次打开时可能提示 **"RelayAI" 已损坏，无法打开**。这是 Gatekeeper 安全机制导致的，并非文件实际损坏。解决方法：
+macOS 未签名的应用首次打开时可能提示 **"RelayAI" 已损坏**，这是 Gatekeeper 安全机制，并非文件损坏。解决方法：
 
 ```bash
 sudo xattr -r -d com.apple.quarantine /Applications/RelayAI.app
 ```
 
-或在 Finder 中右键点击应用 → 选择「打开」→ 在弹窗中确认「打开」。
+或在 Finder 中右键 → 「打开」→ 确认「打开」。
+
+### 运行
+
+```bash
+# macOS
+open RelayAI.app
+
+# Windows
+RelayAI.exe
+
+# Linux
+./RelayAI
+```
+
+## 构建
+
+### 前置依赖
+
+- Go 1.26+
+- Node.js 18+
+- [Wails v3](https://wails.io/docs/next/guides/installation)
+
+```bash
+go install tool
+make install
+```
+
+### 使用 Make（推荐）
+
+```bash
+make build                # 构建当前平台
+make run                  # 构建并运行
+make build-darwin         # macOS .app
+make build-windows        # Windows .exe
+make build-linux          # Linux
+
+# 指定架构
+make build-darwin-arm64
+make build-darwin-amd64
+make build-darwin-universal
+
+# 其他
+make test                 # 运行测试
+make fmt                  # 格式化 + 代码检查
+make clean                # 清理构建产物
+make info                 # 显示版本信息
+```
+
+### 使用 Wails3
+
+```bash
+wails3 task darwin:package              # macOS 当前架构
+wails3 task darwin:package ARCH=arm64   # Apple Silicon
+wails3 task darwin:package:universal    # Universal
+wails3 task windows:build ARCH=amd64    # Windows
+wails3 task linux:build ARCH=amd64      # Linux
+```
+
+> 跨平台构建需先准备 Docker 镜像：`make setup-docker`
 
 ## 开发
 
 ```bash
-# 启动开发模式（推荐）
-make dev
-
-# 或直接使用 wails3
-wails3 dev
-
-# 仅启动前端开发服务器
-make dev-frontend
+make dev                  # 启动开发模式（热更新）
+make dev-frontend         # 仅启动前端开发服务器
 ```
-
-## 使用
-
-1. 添加 Provider（名称、URL、API Key）
-2. 点击"写入配置"将代理地址写入 CLI 配置
-3. 启动代理
-4. 直接使用 CLI 工具即可
 
 ## 数据存储
 
-`~/.relayai/relayai.db`
+SQLite 数据库：`~/.relayai/relayai.db`
 
 ## 许可证
 
