@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { useAppMessage } from '../composables/useMessage'
+import { useMessage } from 'naive-ui'
 import * as App from '../../bindings/relay-ai/app'
 import { getErrorMessage } from '../utils'
 
 const emit = defineEmits<{ close: [] }>()
-const message = useAppMessage()
+const message = useMessage()
 const debugEnabled = ref(false)
 
 onMounted(async () => {

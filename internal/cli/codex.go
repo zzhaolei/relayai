@@ -95,8 +95,6 @@ func EnableCodexProvider(baseURL, apiKey string) error {
 	}
 
 	m["model_providers"] = providers
-
-	// Set recommended Codex options
 	m["model_reasoning_effort"] = "xhigh"
 
 	features, _ := m["features"].(map[string]any)
@@ -110,62 +108,13 @@ func EnableCodexProvider(baseURL, apiKey string) error {
 		return err
 	}
 
-	// Write auth.json
 	authPath, _ := codexAuthPath()
 	authContent := fmt.Sprintf("{\n  \"auth_mode\": \"apikey\",\n  \"OPENAI_API_KEY\": \"%s\"\n}\n", apiKey)
 	if err := os.WriteFile(authPath, []byte(authContent), 0600); err != nil {
 		return err
 	}
 
-	// Write env file for OPENAI_API_KEY
 	envPath, _ := codexEnvPath()
 	envContent := fmt.Sprintf("# RelayAI auto-generated\nexport OPENAI_API_KEY=\"%s\"\n", apiKey)
 	return os.WriteFile(envPath, []byte(envContent), 0644)
-}
-
-func DisableCodexProvider() error {
-	m, err := ReadCodexConfig()
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-
-	if m["model_provider"] == "relayai" {
-		delete(m, "model_provider")
-	}
-
-	if providers, ok := m["model_providers"].(map[string]any); ok {
-		delete(providers, "relayai")
-		m["model_providers"] = providers
-	}
-
-	// Remove env file and auth.json
-	envPath, _ := codexEnvPath()
-	os.Remove(envPath)
-	authPath, _ := codexAuthPath()
-	os.Remove(authPath)
-
-	return WriteCodexConfig(m)
-}
-
-func IsCodexEnabled(proxyAddr string) bool {
-	m, err := ReadCodexConfig()
-	if err != nil {
-		return false
-	}
-	if m["model_provider"] != "relayai" {
-		return false
-	}
-	providers, ok := m["model_providers"].(map[string]any)
-	if !ok {
-		return false
-	}
-	relayai, ok := providers["relayai"].(map[string]any)
-	if !ok {
-		return false
-	}
-	expected := fmt.Sprintf("http://%s/openai", proxyAddr)
-	return relayai["base_url"] == expected
 }

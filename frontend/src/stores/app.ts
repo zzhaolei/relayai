@@ -52,15 +52,6 @@ export interface RequestLog {
   response_body?: string
 }
 
-export interface ProviderUsageStats {
-  provider_id: string
-  provider: string
-  prompt_tokens: number
-  completion_tokens: number
-  total_tokens: number
-  updated_at: number
-}
-
 export interface ProviderUsagePoint {
   time: number
   prompt_tokens: number
@@ -83,7 +74,6 @@ export const useAppStore = defineStore('app', () => {
   const providers = ref<Provider[]>([])
   const proxyStatus = ref<ProxyStatus>({ running: false, port: 18900, addr: '', proxy_auth_token: '' })
   const logs = ref<RequestLog[]>([])
-  const providerUsageStats = ref<ProviderUsageStats[]>([])
   const logsSizeKB = ref(0)
   const totalTokens = ref(0)
   const loading = ref(false)
@@ -116,22 +106,6 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
-  async function fetchProviderUsageStats() {
-    try {
-      await fetchProviders()
-      providerUsageStats.value = providers.value.map(provider => ({
-        provider_id: provider.id,
-        provider: provider.name,
-        prompt_tokens: provider.prompt_tokens || 0,
-        completion_tokens: provider.completion_tokens || 0,
-        total_tokens: provider.total_tokens || 0,
-        updated_at: provider.usage_updated_at || 0,
-      }))
-    } catch {
-      // 静默处理
-    }
-  }
-
   async function fetchProviderUsageSeries(providerID: string) {
     return await App.GetProviderUsageSeries(providerID)
   }
@@ -143,7 +117,7 @@ export const useAppStore = defineStore('app', () => {
     try {
       await Promise.allSettled([
         fetchProxyStatus(),
-        fetchProviderUsageStats(),
+        fetchProviders(),
       ])
     } finally {
       loading.value = false
@@ -254,7 +228,6 @@ export const useAppStore = defineStore('app', () => {
     providers,
     proxyStatus,
     logs,
-    providerUsageStats,
     logsSizeKB,
     totalTokens,
     loading,
@@ -270,10 +243,8 @@ export const useAppStore = defineStore('app', () => {
     startProxy,
     stopProxy,
     fetchLogs,
-    fetchProviderUsageStats,
     fetchProviderUsageSeries,
     clearLogs,
     fetchLogsByTimeRange,
-    clearLogsLocal,
   }
 })

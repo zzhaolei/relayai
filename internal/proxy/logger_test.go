@@ -8,13 +8,12 @@ import (
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
 
-func TestGetProviderUsageStats(t *testing.T) {
+func TestGetProviderUsageSeries(t *testing.T) {
 	db, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
 		t.Fatalf("open database: %v", err)
 	}
 	defer db.Close()
-	// Use single connection for in-memory SQLite to avoid per-connection DB isolation
 	db.SetMaxOpenConns(1)
 
 	_, err = db.Exec(`
@@ -79,28 +78,7 @@ func TestGetProviderUsageStats(t *testing.T) {
 	logger.Add(RequestLog{ProviderID: "provider-anthropic", Provider: "Anthropic", PromptTokens: 4, CompletionTokens: 6, TotalTokens: 10})
 	logger.Add(RequestLog{Provider: "OpenAI", PromptTokens: 100, CompletionTokens: 100, TotalTokens: 200})
 
-	// Wait for async addProviderUsage goroutines to complete
 	time.Sleep(100 * time.Millisecond)
-
-	stats := logger.GetProviderUsageStats()
-	if len(stats) != 2 {
-		t.Fatalf("expected 2 provider stats, got %d", len(stats))
-	}
-
-	byProvider := map[string]ProviderUsageStats{}
-	for _, stat := range stats {
-		byProvider[stat.Provider] = stat
-	}
-
-	openAI := byProvider["OpenAI"]
-	if openAI.ProviderID != "provider-openai" || openAI.PromptTokens != 17 || openAI.CompletionTokens != 8 || openAI.TotalTokens != 25 {
-		t.Fatalf("unexpected OpenAI stats: %+v", openAI)
-	}
-
-	anthropic := byProvider["Anthropic"]
-	if anthropic.ProviderID != "provider-anthropic" || anthropic.PromptTokens != 4 || anthropic.CompletionTokens != 6 || anthropic.TotalTokens != 10 {
-		t.Fatalf("unexpected Anthropic stats: %+v", anthropic)
-	}
 
 	series := logger.GetProviderUsageSeries("provider-openai")
 	if len(series) != 1 {

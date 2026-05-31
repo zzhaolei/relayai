@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useAppMessage } from '../composables/useMessage'
+import { useMessage } from 'naive-ui'
 import type { Provider, CLIType } from '../stores/app'
 import { useAppStore, CLI_TYPES } from '../stores/app'
 import CLIIcon from './CLIIcon.vue'
@@ -17,7 +17,7 @@ const emit = defineEmits<{
 }>()
 
 const store = useAppStore()
-const message = useAppMessage()
+const message = useMessage()
 const toggling = ref(false)
 
 async function handleToggleEnabled(val: boolean) {

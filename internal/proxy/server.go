@@ -112,18 +112,6 @@ func (s *Server) GetLogsWithLimit(limit int) []RequestLog {
 	return s.logger.GetLogsWithLimit(limit)
 }
 
-func (s *Server) GetLogsSince(lastID string) []RequestLog {
-	return s.logger.GetLogsSince(lastID)
-}
-
-func (s *Server) GetLogsByTimeRange(from, to int64) []RequestLog {
-	return s.logger.GetLogsByTimeRange(from, to)
-}
-
-func (s *Server) GetProviderUsageStats() []ProviderUsageStats {
-	return s.logger.GetProviderUsageStats()
-}
-
 func (s *Server) GetProviderUsageSeries(providerID string) []ProviderUsagePoint {
 	return s.logger.GetProviderUsageSeries(providerID)
 }

@@ -81,11 +81,6 @@ function formatDateShort(value?: number) {
   return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
 }
 
-function formatChartValue(value: number): string {
-  if (value >= 1_000_000) return (value / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'm'
-  if (value >= 1_000) return (value / 1_000).toFixed(1).replace(/\.0$/, '') + 'k'
-  return value.toString()
-}
 
 function buildChart(points: ProviderUsagePoint[]) {
   const width = 640
@@ -182,7 +177,7 @@ function buildChart(points: ProviderUsagePoint[]) {
   const yTicks = [0, 0.25, 0.5, 0.75, 1].map(r => ({
     y: axisBottom - r * innerHeight,
     value: Math.round(maxValue * r),
-    label: formatChartValue(Math.round(maxValue * r)),
+    label: formatTokens(Math.round(maxValue * r)),
   }))
 
   const hitTargets = points.map((p, i) => ({

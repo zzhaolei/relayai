@@ -2,7 +2,6 @@ package cli
 
 import (
 	"encoding/json"
-	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
@@ -53,25 +52,6 @@ func claudeConfigPath() (string, error) {
 	return filepath.Join(home, claudeDir, claudeConfig), nil
 }
 
-func ReadClaudeSettings() (*ClaudeSettings, error) {
-	path, err := claudeConfigPath()
-	if err != nil {
-		return nil, err
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var s ClaudeSettings
-	if err := json.Unmarshal(data, &s); err != nil {
-		return nil, err
-	}
-	if s.Env == nil {
-		s.Env = make(map[string]string)
-	}
-	return &s, nil
-}
-
 func WriteClaudeSettings(s *ClaudeSettings) error {
 	path, err := claudeConfigPath()
 	if err != nil {
@@ -102,23 +82,21 @@ func EnableClaudeProvider(baseURL, apiKey string) error {
 	return WriteClaudeSettings(s)
 }
 
-func DisableClaudeProvider() error {
-	s, err := ReadClaudeSettings()
+func ReadClaudeSettings() (*ClaudeSettings, error) {
+	path, err := claudeConfigPath()
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
+		return nil, err
 	}
-	delete(s.Env, "ANTHROPIC_BASE_URL")
-	delete(s.Env, "ANTHROPIC_AUTH_TOKEN")
-	return WriteClaudeSettings(s)
-}
-
-func IsClaudeEnabled(proxyAddr string) bool {
-	s, err := ReadClaudeSettings()
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return false
+		return nil, err
 	}
-	return s.Env["ANTHROPIC_BASE_URL"] == fmt.Sprintf("http://%s/anthropic", proxyAddr)
+	var s ClaudeSettings
+	if err := json.Unmarshal(data, &s); err != nil {
+		return nil, err
+	}
+	if s.Env == nil {
+		s.Env = make(map[string]string)
+	}
+	return &s, nil
 }

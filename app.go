@@ -42,6 +42,13 @@ type ProxyStatus struct {
 	ProxyAuthToken string `json:"proxy_auth_token"`
 }
 
+// ProxyLogData is the unified response for all log-fetching methods.
+type ProxyLogData struct {
+	Logs      []proxy.RequestLog `json:"logs"`
+	SizeKB    int64              `json:"sizeKB"`
+	TotalUsed int                `json:"totalUsed"`
+}
+
 func NewApp() *App {
 	db, err := database.New()
 	if err != nil {
@@ -101,7 +108,6 @@ func (a *App) ProviderList() []config.Provider {
 }
 
 // checkDuplicateProviderName checks if a provider with the same name already exists.
-// Returns an error if a conflict is found.
 // When editing (updateID != ""), that provider is excluded from the check.
 func (a *App) checkDuplicateProviderName(name string, updateID string) error {
 	for _, existing := range a.store.GetProviders() {
@@ -197,12 +203,17 @@ func (a *App) WriteCLIConfig(cliType string) error {
 
 // --- Logs ---
 
-func (a *App) GetProxyLogs() []proxy.RequestLog {
-	return a.proxy.GetLogs()
-}
-
-func (a *App) GetProviderUsageStats() []proxy.ProviderUsageStats {
-	return a.proxy.GetProviderUsageStats()
+// buildLogData assembles a ProxyLogData from a log slice, computing totalUsed in one pass.
+func (a *App) buildLogData(logs []proxy.RequestLog) ProxyLogData {
+	totalUsed := 0
+	for _, l := range logs {
+		totalUsed += l.TotalTokens
+	}
+	return ProxyLogData{
+		Logs:      logs,
+		SizeKB:    a.proxy.GetLogsSizeKB(),
+		TotalUsed: totalUsed,
+	}
 }
 
 func (a *App) GetProviderUsageSeries(providerID string) []proxy.ProviderUsagePoint {
@@ -213,11 +224,13 @@ func (a *App) ClearProxyLogs() {
 	a.proxy.ClearLogs()
 }
 
-func (a *App) GetProxyLogsSizeKB() int64 {
-	return a.proxy.GetLogsSizeKB()
+func (a *App) GetProxyLogData() ProxyLogData {
+	return a.buildLogData(a.proxy.GetLogs())
 }
 
-// --- Settings ---
+func (a *App) GetProxyLogDataWithLimit(limit int) ProxyLogData {
+	return a.buildLogData(a.proxy.GetLogsWithLimit(limit))
+}
 
 // --- Appearance ---
 
@@ -241,76 +254,4 @@ func (a *App) SetDebugMode(enabled bool) error {
 	}
 	a.proxy.SetDebug(enabled)
 	return nil
-}
-
-// --- Combined log fetch (single IPC call) ---
-
-type ProxyLogData struct {
-	Logs      []proxy.RequestLog `json:"logs"`
-	SizeKB    int64              `json:"sizeKB"`
-	TotalUsed int                `json:"totalUsed"`
-}
-
-func (a *App) GetProxyLogData() ProxyLogData {
-	logs := a.proxy.GetLogs()
-	totalUsed := 0
-	for _, l := range logs {
-		totalUsed += l.TotalTokens
-	}
-	return ProxyLogData{
-		Logs:      logs,
-		SizeKB:    a.proxy.GetLogsSizeKB(),
-		TotalUsed: totalUsed,
-	}
-}
-
-// --- Limited log fetch (for initial load) ---
-
-func (a *App) GetProxyLogDataWithLimit(limit int) ProxyLogData {
-	logs := a.proxy.GetLogsWithLimit(limit)
-	totalUsed := 0
-	for _, l := range logs {
-		totalUsed += l.TotalTokens
-	}
-	return ProxyLogData{
-		Logs:      logs,
-		SizeKB:    a.proxy.GetLogsSizeKB(),
-		TotalUsed: totalUsed,
-	}
-}
-
-// --- Incremental log fetch ---
-
-type ProxyLogDataSince struct {
-	Logs      []proxy.RequestLog `json:"logs"`
-	SizeKB    int64              `json:"sizeKB"`
-	TotalUsed int                `json:"totalUsed"`
-}
-
-func (a *App) GetProxyLogDataSince(lastID string) ProxyLogDataSince {
-	logs := a.proxy.GetLogsSince(lastID)
-	totalUsed := 0
-	for _, l := range logs {
-		totalUsed += l.TotalTokens
-	}
-	return ProxyLogDataSince{
-		Logs:      logs,
-		SizeKB:    a.proxy.GetLogsSizeKB(),
-		TotalUsed: totalUsed,
-	}
-}
-
-// --- Date range log fetch ---
-
-func (a *App) GetProxyLogDataByTimeRange(from int64, to int64) ProxyLogDataSince {
-	logs := a.proxy.GetLogsByTimeRange(from, to)
-	totalUsed := 0
-	for _, l := range logs {
-		totalUsed += l.TotalTokens
-	}
-	return ProxyLogDataSince{
-		Logs:      logs,
-		SizeKB:    a.proxy.GetLogsSizeKB(),
-		TotalUsed: totalUsed,
-	}
 }

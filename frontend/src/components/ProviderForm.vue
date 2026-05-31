@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
-import { useAppMessage } from '../composables/useMessage'
+import { useMessage } from 'naive-ui'
 import type { Provider, ModelMapping, CLIType } from '../stores/app'
 import { CLI_TYPES } from '../stores/app'
 import CLIIcon from './CLIIcon.vue'
@@ -23,7 +23,7 @@ const emit = defineEmits<{
   }): void
 }>()
 
-const message = useAppMessage()
+const message = useMessage()
 
 const form = ref({
   name: '',

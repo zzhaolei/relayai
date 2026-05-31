@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted } from 'vue'
-import { useAppMessage } from '../composables/useMessage'
+import { useMessage } from 'naive-ui'
 import { useAppStore } from '../stores/app'
 import type { Provider, ModelMapping, CLIType } from '../stores/app'
 import ProxyStatusBar from '../components/ProxyStatusBar.vue'
@@ -10,7 +10,7 @@ import ProviderForm from '../components/ProviderForm.vue'
 import { getErrorMessage } from '../utils'
 
 const store = useAppStore()
-const message = useAppMessage()
+const message = useMessage()
 const formVisible = ref(false)
 const editingProvider = ref<Provider | null>(null)
 const detailsVisible = ref(false)

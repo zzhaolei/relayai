@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, h, nextTick } from 'vue'
-import { useAppMessage } from '../composables/useMessage'
+import { useMessage } from 'naive-ui'
 import { useAppStore, CLI_TYPES } from '../stores/app'
 import type { CLITypeMeta, CLIType } from '../stores/app'
 import CLIIcon from './CLIIcon.vue'
 import { maskKey, copyToClipboard, getErrorMessage } from '../utils'
 
 const store = useAppStore()
-const message = useAppMessage()
+const message = useMessage()
 
 const cliLabels: Record<string, string> = Object.fromEntries(
   CLI_TYPES.map(t => [t.key, t.label])

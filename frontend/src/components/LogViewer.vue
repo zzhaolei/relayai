@@ -2,14 +2,14 @@
 defineOptions({ name: 'LogViewer' })
 import { ref, onActivated, onDeactivated } from 'vue'
 
-import { useAppMessage } from '../composables/useMessage'
+import { useMessage } from 'naive-ui'
 import { useAppStore } from '../stores/app'
 import type { CLIType } from '../stores/app'
 import CLIIcon from './CLIIcon.vue'
 import { copyToClipboard, formatDuration, formatTokens } from '../utils'
 
 const store = useAppStore()
-const message = useAppMessage()
+const message = useMessage()
 const autoRefresh = ref(true)
 const dateRange = ref<[number, number] | null>(null)
 const isRangeMode = ref(false)

@@ -31,11 +31,6 @@ type Provider struct {
 	UsageUpdatedAt   int64          `json:"usage_updated_at"`
 }
 
-type AppSettings struct {
-	Port      int        `json:"port"`
-	Providers []Provider `json:"providers"`
-}
-
 func NewProvider(name, baseURL, apiKey string) Provider {
 	return Provider{
 		ID:        generateID(),

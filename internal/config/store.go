@@ -21,30 +21,17 @@ func NewStore(db *sql.DB) (*Store, error) {
 }
 
 func (s *Store) init() error {
-	// 检查是否已有端口配置
 	var port int
 	err := s.db.QueryRow("SELECT value FROM settings WHERE key = 'port'").Scan(&port)
 	if err == sql.ErrNoRows {
-		// 插入默认端口
 		_, err = s.db.Exec("INSERT INTO settings (key, value) VALUES ('port', '18900')")
 		if err != nil {
-			return fmt.Errorf("初始化端口配置失败: %w", err)
+			return fmt.Errorf("failed to init port config: %w", err)
 		}
 	} else if err != nil {
-		return fmt.Errorf("查询端口配置失败: %w", err)
+		return fmt.Errorf("failed to query port config: %w", err)
 	}
 	return nil
-}
-
-func (s *Store) GetSettings() AppSettings {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	settings := AppSettings{
-		Port:      s.getPort(),
-		Providers: s.getProviders(),
-	}
-	return settings
 }
 
 func (s *Store) getPort() int {
@@ -56,7 +43,6 @@ func (s *Store) getPort() int {
 	return port
 }
 
-// GetDebugMode returns whether debug logging is enabled.
 func (s *Store) GetDebugMode() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -74,7 +60,6 @@ func (s *Store) GetPort() int {
 	return s.getPort()
 }
 
-// GetProxyAuthToken 获取代理级 auth token，不存在则自动生成
 func (s *Store) GetProxyAuthToken() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -86,14 +71,6 @@ func (s *Store) GetProxyAuthToken() string {
 		s.db.Exec("INSERT INTO settings (key, value) VALUES ('proxy_auth_token', ?)", token)
 	}
 	return token
-}
-
-func (s *Store) SetPort(port int) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	_, err := s.db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('port', ?)", port)
-	return err
 }
 
 func (s *Store) getProviders() []Provider {
@@ -153,21 +130,6 @@ func (s *Store) SetProviderEnabled(id string, enabled bool) error {
 
 	_, err := s.db.Exec("UPDATE providers SET enabled = ? WHERE id = ?", enabled, id)
 	return err
-}
-
-func (s *Store) GetProvider(id string) *Provider {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	rows, err := s.db.Query("SELECT id, name, base_url, api_key, auth_token, default_model, model_mappings, cli_types, chat_compat_mode, enabled, created_at, prompt_tokens, completion_tokens, total_tokens, usage_updated_at FROM providers WHERE id = ?", id)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	providers := scanProviders(rows)
-	if len(providers) == 0 {
-		return nil
-	}
-	return &providers[0]
 }
 
 func (s *Store) GetEnabledProviders() []Provider {
@@ -230,7 +192,6 @@ func scanProviders(rows *sql.Rows) []Provider {
 	return providers
 }
 
-// SetDebugMode enables or disables debug logging.
 func (s *Store) SetDebugMode(enabled bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
