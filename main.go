@@ -15,9 +15,6 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-//go:embed build/appicon.png
-var appIcon []byte
-
 //go:embed build/darwin/tray/statusbar_template_3x.png
 var trayIcon []byte
 
@@ -34,7 +31,6 @@ func main() {
 	a := application.New(application.Options{
 		Name:        "RelayAI",
 		Description: "AI 模型反代管理工具",
-		Icon:        appIcon,
 		Services: []application.Service{
 			application.NewService(app),
 		},
