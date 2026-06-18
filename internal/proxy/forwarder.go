@@ -151,6 +151,7 @@ func tryProvider(w http.ResponseWriter, r *http.Request, upstreamURL string, bod
 	}
 
 	req.Header = r.Header.Clone()
+	req.Header.Del("Accept-Encoding") // Let Go's HTTP client handle decompression automatically
 	req.Header.Set("Authorization", "Bearer "+provider.APIKey)
 	isStream := isStreamingRequest(body)
 	if isStream {
